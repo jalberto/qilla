@@ -1,0 +1,161 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>qilla</title>
+<link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#5b3fbf"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="icon" href="/icon.svg" type="image/svg+xml">
+<style>
+:root{--fg:#1c1b22;--mut:#6f6d7a;--bg:#f7f6fb;--card:#fff;--line:#e6e3f0;--ok:#1f8a4c;--warn:#b7791f;--bad:#c0392b;--acc:#5b3fbf;--acc2:#ede8ff;--tab:3.7rem;--r:14px}
+@media(prefers-color-scheme:dark){:root{--fg:#ecebf3;--mut:#9b98ab;--bg:#0f0e14;--card:#19171f;--line:#2a2733;--acc:#9d84ff;--acc2:#2a2345}}
+*{box-sizing:border-box}html{min-height:100%}body{min-height:100%;font:16px/1.45 system-ui,-apple-system,sans-serif;color:var(--fg);background:var(--bg);margin:0;padding:.75rem .85rem calc(var(--tab) + env(safe-area-inset-bottom,0px) + 1.25rem);max-width:46rem;margin-inline:auto}
+header{display:flex;align-items:center;gap:.6rem;margin:.2rem 0 .9rem}header .badge{background:var(--acc);color:#fff;font-weight:700;padding:.15rem .55rem;border-radius:8px;letter-spacing:.02em}header .dot{width:.55rem;height:.55rem;border-radius:50%;background:var(--warn)}header .dot.on{background:var(--ok)}header small{color:var(--mut);margin-left:auto}
+h2{font-size:.8rem;color:var(--mut);margin:1.1rem 0 .45rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;display:flex;justify-content:space-between;align-items:center}h2 button{font-size:.75rem;min-height:1.8rem;padding:.2rem .6rem}
+section{display:none}section.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:.8rem .95rem;margin:.5rem 0;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:.6rem}.hero .card{margin:0}.kpi b{display:block;font-size:1.5rem;line-height:1.1}.kpi small{color:var(--mut)}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:.5rem}.bar i{display:block;height:100%;background:var(--ok);transition:width .4s}.bar i.warn{background:var(--warn)}.bar i.bad{background:var(--bad)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(10.5rem,1fr));gap:.55rem}
+.tile{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--mut);border-radius:var(--r);padding:.7rem .85rem;min-width:0;overflow-wrap:anywhere}.tile.ok{border-left-color:var(--ok)}.tile.bad{border-left-color:var(--bad)}.tile.warn{border-left-color:var(--warn)}.tile b{display:block}.tile small{color:var(--mut)}
+.list .item{display:flex;gap:.7rem;align-items:flex-start;padding:.65rem 0;border-bottom:1px solid var(--line)}.list .item:last-child{border:0}.item .main{flex:1;min-width:0}.item .t{display:flex;justify-content:space-between;gap:.5rem;align-items:baseline}.item .s{color:var(--mut);font-size:.9rem;margin-top:.15rem;overflow-wrap:anywhere}.item .act{display:flex;gap:.35rem;flex-shrink:0}
+.pill{display:inline-block;padding:.05rem .5rem;border-radius:999px;font-size:.75rem;font-weight:600;background:var(--acc2);color:var(--acc)}.pill.ok{background:#e3f5ea;color:var(--ok)}.pill.bad{background:#fbe5e2;color:var(--bad)}.pill.warn{background:#fbf0d9;color:var(--warn)}.pill.mut{background:var(--line);color:var(--mut)}
+@media(prefers-color-scheme:dark){.pill.ok{background:#173425}.pill.bad{background:#3a1c19}.pill.warn{background:#3a2e14}}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.mut{color:var(--mut)}
+button,.btn{font:inherit;min-height:40px;padding:.45rem .9rem;border:0;border-radius:10px;background:var(--acc);color:#fff;cursor:pointer;font-weight:600}button.ghost{background:var(--acc2);color:var(--acc)}button.sm{min-height:2rem;padding:.2rem .6rem;font-size:.8rem}button:disabled{opacity:.5}
+#chat{padding-bottom:4.4rem}/* room for the fixed ask bar above the tab bar */#chat .msgs{display:flex;flex-direction:column;gap:.45rem;min-height:45vh}#chat .msg{padding:.65rem .85rem;border-radius:16px;background:var(--card);border:1px solid var(--line);overflow-wrap:anywhere;max-width:92%}#chat .me{background:var(--acc);color:#fff;border:0;align-self:flex-end}#chat .sys{color:var(--mut);font-size:.85rem;border:0;background:transparent;padding:.2rem .4rem;white-space:pre-wrap}
+.msg>:first-child{margin-top:0}.msg>:last-child{margin-bottom:0}.msg p{margin:.35em 0}.msg h1,.msg h2,.msg h3,.msg h4{font-size:1em;margin:.6em 0 .2em}.msg ul,.msg ol{margin:.3em 0;padding-left:1.3em}.msg li{margin:.1em 0}.msg blockquote{margin:.3em 0;padding:.1em .6em;border-left:3px solid var(--line);color:var(--mut)}.msg code{font:.85em/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--acc2);padding:.05em .3em;border-radius:4px}.msg pre{background:var(--bg);border:1px solid var(--line);padding:.5rem .65rem;border-radius:10px;overflow:auto;font-size:.8rem;margin:.4em 0;white-space:pre}.msg pre code{background:none;padding:0;font-size:inherit}.msg table{border-collapse:collapse;font-size:.85em;margin:.4em 0;display:block;overflow:auto}.msg th,.msg td{border:1px solid var(--line);padding:.15em .45em;text-align:left}.msg a{color:var(--acc)}.msg .wl{color:var(--acc);border-bottom:1px dotted var(--acc)}.msg hr{border:0;border-top:1px solid var(--line);margin:.5em 0}
+#chat .me code{background:rgba(255,255,255,.22);color:#fff}#chat .me a,#chat .me .wl{color:#fff}
+/* reasoning + tool calls: collapsed by default, visibly not the answer */
+details.meta{margin-top:.45rem;font-size:.78rem;color:var(--mut);border-left:3px solid var(--acc);background:var(--acc2);border-radius:8px;padding:.25rem .55rem}details.meta[open]{padding-bottom:.45rem}details.meta summary{cursor:pointer;font-weight:600;color:var(--acc);list-style:none;user-select:none}details.meta summary::before{content:"▸ ";font-size:.7rem}details.meta[open] summary::before{content:"▾ "}details.meta .think{white-space:pre-wrap;font-style:italic;margin:.35rem 0;max-height:16rem;overflow:auto;color:var(--fg);opacity:.75}details.meta .call{font:.74rem/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;margin:.15rem 0}details.meta .call b{color:var(--acc);font-weight:600}
+#chat .sys details.meta{margin:0}
+form.ask{position:fixed;left:0;right:0;bottom:calc(var(--tab) + env(safe-area-inset-bottom));display:none;gap:.5rem;padding:.55rem .85rem;background:var(--bg);border-top:1px solid var(--line);max-width:46rem;margin-inline:auto}
+form.ask input{flex:1;font:inherit;min-height:44px;padding:.5rem .9rem;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg)}
+nav{position:fixed;left:0;right:0;bottom:0;height:calc(var(--tab) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);display:flex;background:var(--card);border-top:1px solid var(--line)}
+nav a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.1rem;color:var(--mut);text-decoration:none;font-size:.68rem;cursor:pointer;min-height:44px;position:relative}nav a span{font-size:1.3rem;line-height:1}nav a.on{color:var(--acc);font-weight:700}
+.count{position:absolute;top:.3rem;right:calc(50% - 1.3rem);min-width:1.1rem;padding:0 .3rem;border-radius:9px;background:var(--bad);color:#fff;font-size:.65rem;text-align:center;font-weight:700}
+#toasts{position:fixed;top:.6rem;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:.4rem;z-index:9;width:min(92vw,28rem)}.toast{background:var(--fg);color:var(--bg);padding:.5rem .8rem;border-radius:10px;font-size:.85rem;box-shadow:0 4px 14px rgba(0,0,0,.25);animation:fade 4s forwards}@keyframes fade{0%,80%{opacity:1}100%{opacity:0}}
+.empty{color:var(--mut);padding:.6rem 0;font-size:.9rem}
+@media(min-width:46rem){body{padding-top:1.2rem}}
+</style></head><body>
+<header><span class="badge">◆ qilla</span><span class="dot" id="dot"></span><span id="hdr" class="mut">today</span><small id="clock"></small></header>
+<div id="toasts"></div>
+
+<section id="today" class="on">
+  <div class="hero">
+    <div class="card kpi"><b id="pending">–</b><small>jobs pending</small></div>
+    <div class="card kpi"><b id="spent">–</b><small id="cap">spent today</small><div class="bar"><i id="barfill" style="width:0"></i></div></div>
+    <div class="card kpi"><b id="active">–</b><small>running · sub-agents</small></div>
+  </div>
+  <h2>Must run today <button class="ghost sm" onclick="act('/api/reconcile','reconcile')">reconcile now</button></h2><div class="tiles" id="must"></div>
+  <h2>Routines</h2><div class="card list" id="routines"></div>
+  <h2>Cost by agent</h2><div class="card list" id="costA"></div>
+</section>
+<section id="art"><h2>Artifacts <span class="mut" style="text-transform:none;letter-spacing:0">html the runs and chats published</span></h2><div class="card list" id="artifacts"></div></section>
+<div id="viewer" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:8;flex-direction:column"><div style="display:flex;gap:.5rem;align-items:center;padding:.5rem .75rem;border-bottom:1px solid var(--line)"><b id="vtitle" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></b><a id="vopen" class="btn ghost sm" target="_blank" rel="noopener" style="text-decoration:none">open</a><button class="sm ghost" onclick="closeViewer()">close</button></div><iframe id="vframe" sandbox="allow-scripts" style="flex:1;border:0;width:100%;background:#fff"></iframe></div>
+
+<section id="chat"><div id="chathdr" class="mut" style="font-size:.8rem;margin:.1rem 0 .5rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center"></div><div class="msgs" id="msgs"></div>
+  <form class="ask" id="ask"><input name="text" placeholder="ask…" autocomplete="off" enterkeyhint="send"><button aria-label="send">↑</button></form></section>
+
+<section id="jobs"><h2>Queue</h2><div class="card list" id="jobsList"></div><h2>Recent runs</h2><div class="card list" id="runsList"></div></section>
+
+<section id="status"><div class="tiles" id="checks"></div>
+  <h2>Timers</h2><div class="card list" id="timers"></div>
+  <h2>Working memory</h2><div class="card" id="memcard">–</div><div class="card list" id="memrecent"></div>
+  <div class="card list"><div class="item"><div class="main"><div class="t"><span class="mut">MCP servers</span><span id="mcp">none</span></div></div></div><div class="item"><div class="main"><div class="t"><span class="mut">Skills</span><span id="skills">none</span></div></div></div><div class="item"><div class="main"><div class="t"><span class="mut">Claude</span><span id="cver">–</span></div></div></div></div>
+  <div class="card"><a class="btn ghost" href="/logout" style="display:inline-block;text-decoration:none">log out</a></div></section>
+
+<nav><a data-t="today" class="on"><span>☀</span>Today</a><a data-t="chat"><span>✉</span>Chat</a><a data-t="art"><span>▣</span>Files<b class="count" id="artBadge" hidden>0</b></a><a data-t="jobs"><span>≡</span>Jobs<b class="count" id="jobsBadge" hidden>0</b></a><a data-t="status"><span>♥</span>Status<b class="count" id="statusBadge" hidden>!</b></a></nav>
+
+<script>
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const when=u=>u?new Date(u*1000).toLocaleString([],{weekday:'short',hour:'2-digit',minute:'2-digit'}):'';
+const toast=t=>{const d=document.createElement('div');d.className='toast';d.textContent=t;$('#toasts').appendChild(d);setTimeout(()=>d.remove(),4200)};
+async function j(u,o){const r=await fetch(u,o);if(r.status===401){location.reload();return}if(!r.ok)throw new Error((await r.text()).trim()||r.status);return r.json()}
+async function act(u,label){try{await j(u,{method:'POST'});toast(label+' ✓');refresh()}catch(e){toast('✗ '+e.message)}}
+function show(t){document.querySelectorAll('nav a,section').forEach(e=>e.classList.remove('on'));document.querySelector(`nav a[data-t=${t}]`).classList.add('on');$('#'+t).classList.add('on');$('#ask').style.display=t==='chat'?'flex':'none';load(t);history.replaceState(null,'','#'+t)}
+document.querySelectorAll('nav a').forEach(a=>a.onclick=()=>show(a.dataset.t));
+const item=(main,side,sub,actions)=>`<div class="item"><div class="main"><div class="t"><span>${main}</span><span>${side||''}</span></div>${sub?`<div class="s">${sub}</div>`:''}</div>${actions?`<div class="act">${actions}</div>`:''}</div>`;
+const loaders={
+ today:async()=>{const s=await j('/api/status');$('#hdr').textContent=s.day;$('#pending').textContent=s.pending;$('#active').textContent=`${s.running||0} · ${s.subagents||0}`;
+  const spent=(s.cost_by_routine||[]).reduce((a,l)=>a+l.Cost,0),cap=s.budget.Block||s.budget.block||0,w=s.budget.Warn||s.budget.warn||0;
+  $('#spent').textContent=spent.toFixed(2)+' $';$('#cap').textContent=cap?`of ${cap.toFixed(2)} today`:'spent today';const f=$('#barfill');f.style.width=(cap?Math.min(100,spent/cap*100):0)+'%';f.className=cap&&spent>=cap?'bad':w&&spent>=w?'warn':'';
+  const rs=await j('/api/routines')||[];const must=rs.filter(r=>r.must_run);
+  $('#must').innerHTML=must.map(r=>`<div class="tile ${r.done_today?'ok':r.pending?'warn':'bad'}"><b>${esc(r.name)}</b><small>${r.done_today?'done':r.pending?'queued':'not yet'} · ${esc(r.window||'any time')}</small></div>`).join('')||'<div class="tile"><small>no must_run routines configured</small></div>';
+  $('#routines').innerHTML=rs.map(r=>item(`<b>${esc(r.name)}</b> <span class="pill mut">${esc(r.kind)}</span>${r.must_run?' <span class="pill">must</span>':''}`,r.done_today?'<span class="pill ok">done</span>':r.pending?'<span class="pill warn">queued</span>':r.failed_today?'<span class="pill bad">failed</span>':'',`${esc(r.schedule)}${r.window?' · '+esc(r.window):''}${r.runs_today?` · ${r.runs_today} run${r.runs_today>1?'s':''} · ${r.cost_today.toFixed(3)} $`:''}`,`<button class="sm ghost" ${r.pending?'disabled':''} onclick="act('/api/routines/${encodeURIComponent(r.name)}/run','${esc(r.name)} queued')">run</button>`)).join('')||'<div class="empty">no routines yet — qilla new routine …</div>';
+  $('#costA').innerHTML=(s.cost_by_agent||[]).map(l=>item(esc(l.Key)||'<span class="mut">script</span>',`${l.Cost.toFixed(3)} $${l.Unpriced?' <span class="warn">?</span>':''}`,`${l.Runs} runs${l.Failed?` · <span class="bad">${l.Failed} failed</span>`:''}${l.Skipped?` · ${l.Skipped} skipped`:''}`)).join('')||'<div class="empty">nothing ran yet today</div>'},
+ jobs:async()=>{const js=await j('/api/jobs')||[];const open=js.filter(x=>x.State==='queued'||x.State==='running');$('#jobsBadge').textContent=open.length;$('#jobsBadge').hidden=!open.length;
+  const cls={done:'ok',failed:'bad',suspended:'mut',running:'warn',queued:''};
+  $('#jobsList').innerHTML=js.filter(x=>x.State!=='done').slice(0,30).map(x=>item(`#${x.ID} <b>${esc(x.Routine)}</b>${x.Late?' <span class="pill warn">late</span>':''}`,`<span class="pill ${cls[x.State]||''}">${x.State}</span>`,`${x.Text?esc(x.Text.slice(0,120))+' · ':''}${x.Attempts?`tries ${x.Attempts} · `:''}${x.Error?esc(x.Error.slice(0,160)):'due '+when(Date.parse(x.Due)/1000)}`,
+    x.State==='failed'||x.State==='suspended'?`<button class="sm ghost" onclick="act('/api/jobs/${x.ID}/retry','#${x.ID} retried')">retry</button>`:x.State==='queued'?`${x.Error?`<button class="sm ghost" title="waiting: ${esc(x.Error)} — run it now" onclick="act('/api/jobs/${x.ID}/retry','#${x.ID} released')">now</button>`:''}<button class="sm ghost" onclick="act('/api/jobs/${x.ID}/drop','#${x.ID} dropped')">drop</button>`:'')).join('')||'<div class="empty">queue empty</div>';
+  const rs=await j('/api/runs')||[];$('#runsList').innerHTML=rs.map(r=>item(`<b>${esc(r.routine)}</b> <span class="mut">${when(r.started)}</span>`,`<span class="pill ${r.ok?(r.skipped?'mut':'ok'):'bad'}">${r.skipped?'skipped':r.ok?'ok':'failed'}</span>`,r.error?esc(r.error.slice(0,160)):`${r.model||''}${r.tokens?` · ${(r.tokens/1000).toFixed(0)}k tokens`:''} · ${r.priced?r.cost.toFixed(3)+' $':'unpriced'} · ${(r.duration_ms/1000).toFixed(0)} s`)).join('')||'<div class="empty">no runs yet</div>'},
+ status:async()=>{const d=await j('/api/doctor');const bad=d.checks.filter(c=>!c.ok&&c.hard).length;$('#statusBadge').hidden=!bad;
+  const order=c=>c.ok?2:c.hard?0:1;$('#checks').innerHTML=d.checks.slice().sort((a,b)=>order(a)-order(b)).map(c=>`<div class="tile ${c.ok?'ok':c.hard?'bad':'warn'}"><b>${esc(c.name)}</b><small>${esc(c.info)}</small></div>`).join('');
+  $('#timers').innerHTML=(d.timers||[]).map(t=>item(esc(t.unit.replace(/^qilla-|\.timer$/g,'')),`<span class="mut">${esc(t.next)||'–'}</span>`,`last ${esc(t.last)||'–'}`)).join('')||'<div class="empty">no qilla timers — qilla init, then enable them</div>';
+  $('#mcp').textContent=(d.mcp_servers||[]).join(', ')||'none';$('#skills').textContent=(d.skills||[]).slice(0,8).join(', ')+((d.skills||[]).length>8?' …':'')||'none';$('#cver').textContent=d.claude_version||'–';
+  const m=await j('/api/memory');if(!m.enabled){$('#memcard').textContent='disabled';$('#memrecent').innerHTML='';return}const st=m.stats;
+  $('#memcard').innerHTML=`<b>${esc(st.backend)}</b> · ${st.entries} notes · ${st.expiring_7d} expiring · ${st.promotable} promotable${(m.conflicts||[]).length?` · <span class="warn">${m.conflicts.length} conflicts</span>`:''}`;
+  $('#memrecent').innerHTML=(m.recent||[]).slice(0,10).map(e=>item(`<b>${esc(e.project)}</b> <span class="pill mut">${esc(e.kind)}</span>`,`<span class="mut">×${e.support}</span>`,esc(e.text.slice(0,140)))).join('')||'<div class="empty">nothing remembered yet</div>'},
+ art:async()=>{const arts=await j('/api/artifacts')||[];$('#artBadge').textContent=arts.length;$('#artBadge').hidden=!arts.length;
+  $('#artifacts').innerHTML=arts.map(a=>item(`<b>${esc(a.title)}</b>`,`<span class="mut">${esc(new Date(a.created).toLocaleString([],{weekday:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'}))}</span>`,`${esc(a.routine||'chat')} · ${(a.bytes/1024).toFixed(0)} kB · expires ${esc(new Date(a.expires).toLocaleDateString())}`,`<button class="sm" onclick="openViewer('${esc(a.id)}','${esc(a.title).replace(/'/g,'&#39;')}')">open</button><button class="sm ghost" onclick="act('/api/artifacts/${esc(a.id)}/rm','removed')">✕</button>`)).join('')||'<div class="empty">none yet — <code>qilla artifact add file.html --title "…"</code>, or a run returning <code>artifacts</code></div>'},
+ chat:async()=>{const h=await j('/api/chat/history?n=60');chatAgent=h.agent;$('#msgs').innerHTML='';seen.clear();rendered.clear();
+  chatState(h);
+  if(!h.turns.length)bubble(h.session_id?'No turns yet in this session.':'No session yet — the first ask starts it.','sys');
+  h.turns.forEach(renderTurn);const last=$('#msgs').lastElementChild;if(last)last.scrollIntoView({block:'end'})}
+};
+let chatAgent='chief';
+function chatState(h){const sid=h.session_id?h.session_id.slice(0,8):'—';
+  $('#chathdr').innerHTML=`<span class="pill">${esc(h.agent)}</span><span>${esc(h.model||'')}${h.effort?' · '+esc(h.effort):''}</span><span class="mut">session ${esc(sid)}</span>`+
+  (h.attached?`<span class="pill warn" title="an interactive claude holds this session: a terminal qilla chat or Remote Control">● attached in a terminal</span>`:`<span class="pill ok">● free</span>`)+
+  `<span class="pill ${h.running>0?'warn':'mut'}" title="qilla jobs currently running">⚙ ${h.running||0} running</span>`+
+  `<span class="pill ${h.subagents>0?'':'mut'}" title="sub-agents working for this session">🤖 ${h.subagents||0} sub-agent${h.subagents===1?'':'s'}</span>`;
+  $('#ask input').placeholder=h.attached?'ask… (queued behind the terminal session)':'ask…'}
+// md: small, dependency-free markdown → HTML. The source is HTML-escaped first and only the
+// renderer's own tags are emitted, so model output can never inject markup.
+function md(src){const fences=[];let s=esc(src).replace(/```[^\n]*\n([\s\S]*?)```/g,(m,c)=>{fences.push(c.replace(/\n$/,''));return ` ${fences.length-1} `});
+  const inline=t=>t.replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>').replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g,'$1<i>$2</i>').replace(/(^|[\s(])_([^_\n]+)_(?=[\s).,;:!?]|$)/g,'$1<i>$2</i>').replace(/~~([^~\n]+)~~/g,'<s>$1</s>').replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g,(m,a,b)=>`<span class="wl">${b||a}</span>`).replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  const lines=s.split('\n'),out=[];let i=0;
+  while(i<lines.length){let l=lines[i];const f=l.match(/^ (\d+) $/);
+    if(f){out.push(`<pre><code>${fences[+f[1]]}</code></pre>`);i++;continue}
+    if(!l.trim()){i++;continue}
+    if(/^(-{3,}|\*{3,})$/.test(l.trim())){out.push('<hr>');i++;continue}
+    let h=l.match(/^(#{1,6})\s+(.*)$/);if(h){out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`);i++;continue}
+    if(/^\s*&gt;/.test(l)){const q=[];while(i<lines.length&&/^\s*&gt;/.test(lines[i]))q.push(lines[i++].replace(/^\s*&gt;\s?/,''));out.push(`<blockquote>${md(q.join('\n').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&amp;/g,'&'))}</blockquote>`);continue}
+    if(/^\s*\|/.test(l)){const rows=[];while(i<lines.length&&/^\s*\|/.test(lines[i]))rows.push(lines[i++]);const cells=r=>r.trim().replace(/^\||\|$/g,'').split('|').map(c=>inline(c.trim()));const body=rows.filter(r=>!/^\s*\|?\s*:?-{2,}/.test(r));if(body.length){out.push('<table><tr>'+cells(body[0]).map(c=>`<th>${c}</th>`).join('')+'</tr>'+body.slice(1).map(r=>'<tr>'+cells(r).map(c=>`<td>${c}</td>`).join('')+'</tr>').join('')+'</table>')}continue}
+    let m=l.match(/^(\s*)([-*+]|\d+[.)])\s+/);if(m){const ol=/\d/.test(m[2]),items=[];while(i<lines.length){const mm=lines[i].match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/);if(!mm)break;let item=mm[3];i++;while(i<lines.length&&/^\s{2,}\S/.test(lines[i])&&!/^\s*([-*+]|\d+[.)])\s+/.test(lines[i]))item+=' '+lines[i++].trim();items.push(`<li>${inline(item.replace(/^\[( |x)\]\s*/i,(a,b)=>b.trim()?'☑ ':'☐ '))}</li>`)}out.push(`<${ol?'ol':'ul'}>${items.join('')}</${ol?'ol':'ul'}>`);continue}
+    const p=[];while(i<lines.length&&lines[i].trim()&&!/^(#{1,6}\s|\s*&gt;|\s*\||\s*([-*+]|\d+[.)])\s| \d+ $)/.test(lines[i]))p.push(lines[i++]);
+    if(!p.length){p.push(l);i++}
+    out.push(`<p>${p.map(inline).join('<br>')}</p>`)}
+  return out.join('')}
+function bubbleHTML(html,cls){const d=document.createElement('div');d.className='msg '+(cls||'');d.innerHTML=html;$('#msgs').appendChild(d);d.scrollIntoView({block:'end'});return d}
+// meta: the collapsed reasoning + tool-call block under a turn
+function metaHTML(t){if(!t.thinking&&!(t.calls&&t.calls.length)&&!t.tools)return '';
+  const n=t.tools||(t.calls||[]).length,names=[...new Set((t.calls||[]).map(c=>c.name))].slice(0,4).join(', ');
+  const parts=[];if(t.thinking)parts.push('thinking');if(n)parts.push(`${n} tool call${n>1?'s':''}${names?' · '+esc(names):''}`);
+  return `<details class="meta"><summary>${parts.join(' · ')}</summary>${t.thinking?`<div class="think">${esc(t.thinking)}</div>`:''}${(t.calls||[]).map(c=>`<div class="call"><b>${esc(c.name)}</b> ${esc(c.input||'')}</div>`).join('')}</details>`}
+// seen: transcript uuids already on the page. rendered: uuid-less bubbles (local echo, run result)
+// keyed by role+text so the transcript's own copy of that turn adopts them instead of duplicating;
+// a transcript turn with a uuid never dedups by text, so genuine repeats ("yes", "yes") both show.
+const seen=new Set(),rendered=new Map();let toolRun=null;
+function renderTurn(t){if(t.uuid&&seen.has(t.uuid))return;if(t.uuid)seen.add(t.uuid);
+  const key=t.role+'\n'+(t.text||'');
+  if(t.text&&rendered.has(key)){const el=rendered.get(key);rendered.delete(key);if(!t.uuid)return;if(t.role==='assistant')el.insertAdjacentHTML('beforeend',metaHTML(t));toolRun=null;return}
+  if(t.role==='assistant'&&!t.text){ // tool/thinking-only turn: extend the running collapsed block instead of one bubble per call
+    if(toolRun&&toolRun.el.isConnected&&toolRun.el===$('#msgs').lastElementChild){const a=toolRun.t;a.tools=(a.tools||0)+(t.tools||0);a.calls=(a.calls||[]).concat(t.calls||[]);if(t.thinking)a.thinking=[a.thinking,t.thinking].filter(Boolean).join('\n\n');const open=toolRun.el.querySelector('details')?.open;toolRun.el.innerHTML=metaHTML(a);if(open)toolRun.el.querySelector('details').open=true;return}
+    toolRun={t:{...t},el:bubbleHTML(metaHTML(t),'sys')};return}
+  toolRun=null;
+  const el=bubbleHTML(md(t.text),t.role==='user'?'me':'');
+  if(!t.uuid)rendered.set(key,el);
+  if(t.role==='assistant')el.insertAdjacentHTML('beforeend',metaHTML(t))}
+function openViewer(id,title){$('#vtitle').textContent=title;$('#vopen').href='/artifacts/'+id;$('#vframe').src='/artifacts/'+id;$('#viewer').style.display='flex'}
+function closeViewer(){$('#viewer').style.display='none';$('#vframe').src='about:blank'}
+function load(t){(loaders[t]||(()=>{}))().catch(e=>console.warn(e))}
+let rt;function refresh(){clearTimeout(rt);rt=setTimeout(()=>{const on=document.querySelector('nav a.on').dataset.t;load(on);if(on!=='jobs')loaders.jobs().catch(()=>{});if(on!=='art')loaders.art().catch(()=>{})},250)}
+function bubble(text,cls){const d=document.createElement('div');d.className='msg '+(cls||'');d.textContent=text;$('#msgs').appendChild(d);d.scrollIntoView({block:'end'});return d}
+const pendingAsks={};
+$('#ask').onsubmit=async e=>{e.preventDefault();const t=e.target.text.value.trim();if(!t)return;rendered.set('user\n'+t,bubble(t,'me'));e.target.reset();try{const r=await j('/api/ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:t})});pendingAsks[r.id]=bubble(`… job #${r.id} queued`,'sys')}catch(err){bubble('✗ '+err.message,'sys')}};
+const es=new EventSource('/api/events');es.onopen=()=>{$('#dot').classList.add('on');refresh()};es.onerror=()=>$('#dot').classList.remove('on');
+es.onmessage=e=>{const ev=JSON.parse(e.data);
+ if(ev.kind==='job'&&ev.data&&pendingAsks[ev.data.id]){const b=pendingAsks[ev.data.id];if(ev.data.state==='running')b.textContent=`… job #${ev.data.id} running`;else if(ev.data.state==='waiting')b.textContent=`⏸ job #${ev.data.id} waiting — ${ev.data.reason}${ev.data.retry?` · retries ${when(ev.data.retry)}`:''}`}
+ if(ev.kind==='run'&&ev.data){const r=ev.data;if(r.routine==='ask'){const b=pendingAsks[r.job_id];if(b)b.remove();delete pendingAsks[r.job_id];if(r.error)bubble('✗ '+r.error,'sys');else renderTurn({role:'assistant',text:r.result||'(no text)'})}else{toast(`${r.routine}: ${r.error?'✗ failed':r.skipped?'unchanged':'✓ done'}`)}}
+ else if(ev.kind==='chat'&&ev.data&&ev.data.agent===chatAgent){renderTurn(ev.data.turn)}
+ else if(ev.kind==='chat-state'&&ev.data&&ev.data.agent===chatAgent){load('chat')}
+ else if(ev.kind==='warn'){toast('⚠ '+ev.msg)}
+ refresh()};
+setInterval(()=>{$('#clock').textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})},1000);
+show((location.hash||'#today').slice(1));
+</script></body></html>

@@ -1,0 +1,209 @@
+# qilla.toml — the whole system in one file. Written by `qilla init`, edited by you.
+# Paths may use ~ . Times are local. Money is USD per day.
+
+vault = "~/Notes"                       # the Obsidian vault: memory, persona, templates, routines
+state_dir = "~/.local/state/qilla"      # SQLite (jobs, ledger, sessions), run results
+queue_dir = "~/.cache/qilla/helpers/queue"   # `qilla queue`: one <family>.jsonl of judge candidates per family
+persona = "Qilla/Persona.md"            # vault-relative; first layer of every AI prompt
+facts_dir = "Qilla/Facts"               # vault-relative; facts:<domain> loads <facts_dir>/<domain>.md
+journal_dir = "Desk/Journal"            # vault-relative; journal:<N>d loads YYYY-MM-DD.md notes
+todo = "Desk/Todo.md"                   # vault-relative; where `qilla remind add` appends reminder lines
+questions = "Desk/Questions.md"         # vault-relative queue of open questions; its "- [ ]" lines are the statusline ❓ count
+daily_template = "Qilla/Templates/Daily.md"   # vault-relative; `qilla log` creates a missing daily note from it
+reply_marker = "💬 owner:"               # prefix of your reply line under a queued question; `qilla catchup` reads it back
+rules = "Qilla/Rules.md"                # vault-relative; second layer (safety rails, style)
+recall_cmd = "qmd query {{query}} --files -n {{n}} --no-rerank"   # external recall; reranking costs ~1 min on a small box, skip it for routines
+claude = "claude"                       # binary on PATH (mise-managed)
+timezone = "Europe/Madrid"
+
+[budget]                                # global, per day
+warn = 4.00
+block = 6.00
+
+[web]
+listen = "127.0.0.1:7433"               # loopback; publish with `tailscale serve`
+password_hash = ""                      # set with `qilla passwd`; empty = loopback only
+idle_exit = "10m"                       # serve exits when queue empty for this long
+
+[chat]                                  # qilla chat (interactive) defaults — routines use tiers, this is you talking
+model = "claude-fable-5-1"              # degrades with weekly usage via [models].ladder
+effort = "low"
+rc = true                               # Remote Control on: reach the session from the phone
+statusline = ""                         # empty = qilla's own bar (model · ⚡weekly · ◔context · 🚨services · 🔔reminders · ❓questions · 📋jots); set a command of your own and qilla wraps it with its badge instead
+# settings = "~/.mytools/claude-settings.json"   # extra Claude settings merged in (theme, remoteControlAtStartup…)
+autocompact_pct = 25                    # auto-compact the interactive session at this % of the context window (0, or 10..95); Claude Code's own default triggers very late
+session_max_idle = "6h"                 # resuming a session idle longer than this rotates to a fresh one seeded with a handoff ("0" = never)
+claude_args = ["--disallowed-tools", "Artifact", "--no-chrome"]   # light sessions: artifacts are qilla's, browsing is qilla browser
+[chat.openings]                          # bare `qilla chat`: first message by time of day (empty = just resume)
+morning = "Good morning. If there is no briefing yet today, say so and offer to run it; otherwise give me a 5-line status."
+afternoon = "Hi. Anything new since we last talked (inbox, questions, mail)? 5 lines."
+evening = "Evening wrap-up: what happened today, what is pending, 5 lines."
+resume = "Catch up: anything new since we last talked, then wait for me."
+
+[models]                                # tiers: routines and agents name a job, not a model
+classify = "claude-haiku-4-5-20251001"  # bucket/tag/dedupe
+extract = "claude-haiku-4-5-20251001"   # pull fields out of text
+research = "claude-sonnet-5"            # read the web, return findings
+synthesis = "claude-sonnet-5"           # weigh findings, write the verdict
+judgment = "claude-sonnet-5"            # the chief's decisions (raise per routine when it earns it)
+coding = "claude-opus-5"                # writing or changing code; `qilla chat --dir <repo>` picks this tier by itself
+ladder = ["claude-fable-5-1", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"]
+degrade_at = 80                         # seven-day subscription usage % → every tier one step down the ladder
+[models.effort]                         # effort per tier (low | medium | high); unset tiers leave it to Claude Code
+coding = "medium"
+
+[sandbox]                               # Claude Code's own Bash sandbox (bubblewrap), on top of the systemd unit sandbox
+disabled = false
+allowed_domains = ["api.anthropic.com", "wttr.in"]   # egress the sandbox permits; routines add their own with allowed_domains
+# bind_ro = ["~/.mytools/bin"]          # extra paths routines may read inside the unit (home is otherwise an empty tmpfs)
+# bind_rw = ["~/.cache/mytools"]        # extra writable paths (caches, ledgers of your own helpers)
+
+[browser]                               # headless browsing for routines; handoff to a headed browser when a page needs a human
+headless = "agent-browser"              # profile per agent under state_dir/browser/<agent> (logins survive runs)
+headed = "brave-browser --app=%u --user-data-dir=%p"   # %u url, %p profile; any app-mode browser works; empty = no handoff (N100 without a display)
+
+[plugins]                               # your Claude Code plugins (skills, agents, hooks) loaded only into qilla's spawns — nothing user-wide
+dirs = ["Qilla/Plugin"]                 # vault-relative: put a .claude-plugin/plugin.json + skills/ there
+
+[guard]                                 # PreToolUse rails for interactive sessions in the vault (qilla plugin hooks)
+scope = "vault"                         # vault | all
+# ask = ["…regex…"]                     # default: ssh/scp/sftp/rsync-to-host need explicit approval per use
+# deny = ["rm -rf /"]                   # never
+read_max_lines = 400                    # whole-file Read above this is denied: read the part you need
+
+[health]                                # the stack watch: `qilla doctor` reports it, `qilla doctor fix` restarts failed units
+# watched_services = ["qilla.socket", "qilla-engram.service", "qilla-reconcile.timer"]   # systemd --user units that must never be `failed` (a missing unit counts as failed too)
+# freshness = ["Desk/Briefings/Today.md=daily@09:30", "git@backup=7d"]   # artifacts that must stay recent: path=daily@HH:MM | path=Nh | path=Nd | git@<remote>=Nd (unpushed commits)
+
+[hooks]                                 # your own extensions, called after qilla's hooks
+# session_start = "~/.mytools/session-context.sh"   # stdout appended to the session context
+# stop = "~/.mytools/learn-reminder.sh"             # run at Stop
+
+[artifacts]                             # HTML runs/chats produce for the page (charts, tables, previews)
+ttl_days = 30
+max_mb = 5
+
+[tasks]                                 # aging of open dated tasks ("- [ ] YYYY-MM-DD · …") — `qilla task aging|summary`
+# warn_days = 3                         # 🟠 from this age on, the briefing flags it
+# stale_days = 7                        # 🔴 from this age on, it is stale
+
+[memory]                                # working memory: what qilla needs and you never read
+backend = "engram"                      # engram (sidecar, default) | sqlite (own FTS5 tables)
+shared_project = "shared"               # notes every routine/agent sees (tool quirks, house rules); routines otherwise see only their own
+# engram_url = "unix:///run/user/1000/qilla-engram.sock"   # default: $XDG_RUNTIME_DIR/qilla-engram.sock
+engram_version = "v2.0.0-rc.10"         # pinned in the runtime mise.toml
+memory_max_chars = 2000                 # cap per prompt for the memory:<N> scope token
+said_ttl_days = 90                      # "already said" notes expire
+expire_unused_days = 90                 # notes nobody searched for expire (heuristics never)
+promote_support = 5                     # heuristic seen this often …
+promote_days = 14                       # … and this old → proposed as a vault fact in the brief
+conflict_auto_days = 7
+consolidate_dry_run_weeks = 3
+
+[agents.chief]                          # the resumed session you talk to
+model = "claude-sonnet-5"
+budget = { warn = 2.00, block = 3.00 }
+allowed_tools = ["Read", "Edit", "Write", "Glob", "Grep", "Bash(qmd:*)", "Bash(git:*)", "Bash(qilla catchup:*)", "Bash(qilla note:*)", "Bash(qilla log:*)", "Bash(qilla config get:*)", "Bash(qilla config keys)", "WebSearch", "WebFetch"]
+scope = ["persona", "rules", "journal:2d", "recall:8", "memory:6"]
+
+[agents.researcher]
+tier = "research"                       # a tier instead of a model: degrades with usage
+budget = { warn = 1.00, block = 2.00 }
+allowed_tools = ["Read", "Glob", "Grep", "WebSearch", "WebFetch", "Bash(qmd:*)"]
+scope = ["persona", "recall:12"]
+
+# ── Routines ─────────────────────────────────────────────────────────────────
+# kind      script      gather.sh → knap render. No model.
+#           ai-fresh    gather → digest changed? → claude -p (new context) → knap render
+#           ai-resumed  same, but on the named agent's --resume session
+# Files live in <vault>/Qilla/Routines/<name>/ : gather.sh, template.md, prompt.md (ai-* only)
+
+[routines.calendar-today]
+kind = "script"
+schedule = "*-*-* 06:30"                # systemd OnCalendar syntax
+window = "06:00-09:00"
+must_run = true
+output = "Desk/Journal/{{date}}.md"     # knap renders here; append = true keeps existing content
+append = true
+
+[routines.brief]
+kind = "ai-fresh"
+agent = "chief"                         # model, allowed_tools and budget come from the agent unless overridden
+commit = true                           # qilla commits the vault changes after the run; the model never runs git
+schedule = "*-*-* 08:30"
+window = "08:00-13:00"
+must_run = true
+scope = ["persona", "rules", "facts:work", "journal:2d", "recall:6"]
+budget = { block = 1.50 }
+output = "Desk/Journal/{{date}}.md"
+append = true
+
+[routines.email-triage]
+kind = "ai-fresh"
+agent = "chief"
+allowed_domains = ["gmail.googleapis.com"]
+schedule = "*-*-* 08:00,13:00,18:00"
+window = "07:30-20:00"
+must_run = false
+scope = ["persona", "rules", "facts:work"]
+
+[routines.versions]
+kind = "script"
+schedule = "Mon *-*-* 09:00"
+must_run = false
+output = "Tech/Versions.md"
+
+[routines.weekly-retro]
+kind = "ai-resumed"
+agent = "chief"
+schedule = "Sun *-*-* 18:00"
+window = "17:00-23:00"
+must_run = true
+scope = ["persona", "rules", "journal:7d", "recall:10"]
+
+[routines.mem-consolidate]             # weekly working-memory cleanup: judge conflicts, propose promotions
+kind = "ai-fresh"
+agent = "chief"
+schedule = "Sun *-*-* 19:00"
+window = "18:00-23:00"
+must_run = false
+scope = ["persona", "rules"]
+budget = { block = 0.50 }
+output = "Desk/Journal/{{date}}.md"
+append = true
+
+[routines.learn]                 # daily reflection over qilla's own runs → heuristics + proposals for the brief
+kind = "ai-fresh"
+agent = "chief"
+tier = "judgment"
+schedule = "*-*-* 22:45"
+window = "22:00-23:59"
+must_run = false
+input = "runs"                   # ledger rows since the last learn, no gather.sh
+scope = ["persona", "rules", "memory:10"]
+budget = { block = 0.50 }
+output = "Desk/Journal/{{date}}.md"
+append = true
+
+[routines.judge-facts]           # classify captured facts: `qilla enqueue judge-facts --text "…"` parks items; the timer judges the batch
+kind = "ai-fresh"
+agent = "researcher"
+tier = "classify"
+schedule = "*-*-* 21:00"
+must_run = false
+input = "pending"
+rules = "Qilla/Routines/judge-facts/rules.md"
+scope = ["persona"]
+budget = { block = 0.20 }
+output = "Desk/Journal/{{date}}.md"
+append = true
+
+[routines.research]              # `qilla ask --routine research "question"`: recall → fan-out → synthesis; no timer
+kind = "ai-fresh"
+agent = "chief"
+tier = "synthesis"
+schedule = "manual"
+scope = ["persona", "rules", "recall:8", "memory:6"]
+budget = { block = 1.50 }
+output = "Library/Research/{{date}}.md"
+append = true
