@@ -157,6 +157,15 @@ type Tasks struct {
 	StaleDays int `toml:"stale_days"` // default 7
 }
 
+// Gmail is the OAuth client and the accounts behind `qilla gmail` (staging
+// ledger + trash applier). Nothing here is a secret: tokens live in
+// `qilla secret` as gmail-<account>.
+type Gmail struct {
+	ClientSecrets string   `toml:"client_secrets"` // Google Cloud installed-app client JSON
+	Accounts      []string `toml:"accounts"`       // addresses qilla may act on
+	StageFile     string   `toml:"stage_file"`     // default ~/.local/state/qilla/gmail-stage.jsonl
+}
+
 // Guard is the PreToolUse rail set. Patterns are RE2 regexes matched against the Bash command.
 type Guard struct {
 	Scope        string   `toml:"scope"`          // vault (default: only when cwd is inside the vault) | all
@@ -211,6 +220,7 @@ type Config struct {
 	Browser       Browser            `toml:"browser"`
 	Artifacts     Artifacts          `toml:"artifacts"`
 	Guard         Guard              `toml:"guard"`
+	Gmail         Gmail              `toml:"gmail"`
 	Tasks         Tasks              `toml:"tasks"`
 	Hooks         Hooks              `toml:"hooks"`
 	Plugins       Plugins            `toml:"plugins"`
@@ -309,9 +319,12 @@ func (c *Config) applyDefaults() {
 		c.Sandbox.BindRW[i] = Expand(p)
 	}
 	c.Models.Defaults()
+	def(&c.Gmail.StageFile, "~/.local/state/qilla/gmail-stage.jsonl")
+	c.Gmail.StageFile = Expand(c.Gmail.StageFile)
+	c.Gmail.ClientSecrets = Expand(c.Gmail.ClientSecrets)
 	def(&c.Guard.Scope, "vault")
 	if len(c.Guard.Ask) == 0 {
-		c.Guard.Ask = []string{`(^|[;&|` + "`" + `$([[:space:]])(ssh|scp|sftp|ssh-copy-id|sshpass)([[:space:]]|$)`, `(^|[;&|[:space:]])rsync[^|;&]*[[:space:]][^[:space:]]+:`}
+		c.Guard.Ask = []string{`(^|[;&|` + "`" + `$([[:space:]])(ssh|scp|sftp|ssh-copy-id|sshpass)([[:space:]]|$)`, `(^|[;&|[:space:]])rsync[^|;&]*[[:space:]][^[:space:]]+:`, `(^|[;&|[:space:]])qilla[[:space:]]+gmail[[:space:]]+(apply|untrash)([[:space:]]|$)`}
 	}
 	if c.Guard.ReadMaxLines == 0 {
 		c.Guard.ReadMaxLines = 400
@@ -397,6 +410,9 @@ func (c *Config) Validate() error {
 	}
 	if _, err := c.Chat.MaxIdle(); err != nil {
 		return fmt.Errorf("chat.session_max_idle: %w", err)
+	}
+	if len(c.Gmail.Accounts) > 0 && c.Gmail.ClientSecrets == "" {
+		return errors.New("gmail.accounts set but gmail.client_secrets missing")
 	}
 	if b := c.Memory.Backend; b != "engram" && b != "sqlite" {
 		return fmt.Errorf("memory.backend must be engram | sqlite")

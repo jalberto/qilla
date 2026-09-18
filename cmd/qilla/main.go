@@ -174,6 +174,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "qilla:", err)
 			os.Exit(1)
 		}
+	case "gmail":
+		if err := cmdGmail(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "qilla:", err)
+			os.Exit(exitCode(err))
+		}
 	case "enqueue":
 		if err := cmdEnqueue(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "qilla:", err)
@@ -188,7 +193,7 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage: qilla <command>
 
-  init | doctor [--json] [--health [--count]] | doctor fix | passwd | new routine | secret | model | chat [agent] | ask "<text>" | enqueue | run | gather <routine> | runs last <routine> | runs log [--routine r] [--days n] | serve | reconcile | status | task | queue add|list|count|drop | remind add "<what>" --at "<YYYY-MM-DD [HH:MM]>" | remind list|due [--notify]|count|reset | catchup [--all] | note <path> [--section "<heading>"] [--tail N] | log "<text>" [--date YYYY-MM-DD] | config get <dotted.key> | config keys | sessions [--rotated] | sessions handoff [--agent a] [--set "<text>"] | mem | browser | artifact | plugin [install|usage [--unused] [--json]] | statusline | guard | hook | cost | prices sync | version`)
+  init | doctor [--json] [--health [--count]] | doctor fix | passwd | new routine | secret | model | chat [agent] | ask "<text>" | enqueue | run | gather <routine> | runs last <routine> | runs log [--routine r] [--days n] | serve | reconcile | status | task | queue add|list|count|drop | remind add "<what>" --at "<YYYY-MM-DD [HH:MM]>" | remind list|due [--notify]|count|reset | catchup [--all] | note <path> [--section "<heading>"] [--tail N] | log "<text>" [--date YYYY-MM-DD] | config get <dotted.key> | config keys | sessions [--rotated] | sessions handoff [--agent a] [--set "<text>"] | mem | gmail auth|stage|staged|apply|untrash | browser | artifact | plugin [install|usage [--unused] [--json]] | statusline | guard | hook | cost | prices sync | version`)
 }
 
 // firstRun makes sure the pieces exist before any command: a missing config is

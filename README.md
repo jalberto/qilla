@@ -211,6 +211,7 @@ A routine is an isolated bundle: its own gather, template and prompt, no helper 
 | `qilla config get <dotted.key>` · `qilla config keys` | read-only config |
 | `qilla sessions [--count\|--others\|--count-others\|--rotated]` · `qilla sessions handoff` | live Claude sessions in the vault, read from `/proc` · hand context to the next one |
 | `qilla secret set\|list\|rm` | encrypted secrets for the gather step |
+| `qilla gmail auth <account>` · `stage` · `staged [--ids]` · `apply [--only-if-run-ok R]` · `untrash` | stage Gmail message ids while a routine reads, trash them in a later run (`[gmail]`); `apply`/`untrash` are on the guard ask list |
 | `qilla artifact add\|list\|rm` | HTML artifacts served under the page |
 | `qilla browser <args>` · `qilla browser handoff <url>` | headless browsing with a profile per agent · open the same profile headed |
 | `qilla model [tier]` | the resolved model per tier and the current usage degradation |

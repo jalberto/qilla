@@ -201,6 +201,15 @@ func Run(cfg *config.Config, loadErr error, env Env) []Check {
 		add("memory", true, false, "sqlite (own FTS5 tables)")
 	}
 
+	// gmail
+	if cfg.Gmail.ClientSecrets != "" || len(cfg.Gmail.Accounts) > 0 {
+		if _, err := env.Stat(cfg.Gmail.ClientSecrets); err != nil {
+			add("gmail", false, false, cfg.Gmail.ClientSecrets+" missing — `qilla gmail auth` cannot run (gmail.client_secrets)")
+		} else {
+			add("gmail", true, false, fmt.Sprintf("%d account(s), stage %s", len(cfg.Gmail.Accounts), cfg.Gmail.StageFile))
+		}
+	}
+
 	// prices
 	if _, err := env.Stat(prices.File(cfg.Path)); err != nil {
 		add("prices", false, false, "prices.json missing — costs show as unpriced until `qilla prices sync`")

@@ -67,9 +67,14 @@ dirs = ["Qilla/Plugin"]                 # vault-relative: put a .claude-plugin/p
 
 [guard]                                 # PreToolUse rails for interactive sessions in the vault (qilla plugin hooks)
 scope = "vault"                         # vault | all
-# ask = ["…regex…"]                     # default: ssh/scp/sftp/rsync-to-host need explicit approval per use
+# ask = ["…regex…"]                     # default: ssh/scp/sftp/rsync-to-host and `qilla gmail apply|untrash` need explicit approval per use
 # deny = ["rm -rf /"]                   # never
 read_max_lines = 400                    # whole-file Read above this is denied: read the part you need
+
+[gmail]                                 # `qilla gmail`: stage message ids while reading, trash them in a later run
+# client_secrets = "~/Documents/client_secret.json"        # Google Cloud OAuth client (installed app); tokens go to `qilla secret` as gmail-<account>
+# accounts = ["you@example.com"]        # addresses qilla may act on — `qilla gmail auth <account>` once each
+# stage_file = "~/.local/state/qilla/gmail-stage.jsonl"    # default; applied entries land beside it in gmail-applied.jsonl
 
 [health]                                # the stack watch: `qilla doctor` reports it, `qilla doctor fix` restarts failed units
 # watched_services = ["qilla.socket", "qilla-engram.service", "qilla-reconcile.timer"]   # systemd --user units that must never be `failed` (a missing unit counts as failed too)
