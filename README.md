@@ -224,7 +224,7 @@ write = { paths = ["Library/Newsletters/"] }
 exec  = ["msgvault", "qilla"]   # optional: restricts run() argv[0]
 ```
 
-`http` adds `http(method, url, headers={}, json=None, body=None, timeout=30)` — an undeclared host or method is an error, redirects off the allowlist are refused, `methods` defaults to `["GET"]` — plus `secret(name)`. `write` adds `write(path, text)`: vault-relative, inside a declared prefix, atomic, `False` when the content is already identical. Without `[capabilities]` those globals do not exist. `qilla gather <routine> --dry` (or `QILLA_DRY_RUN=1`) turns `write` and non-GET `http` into a `"_dry_actions"` list in the gather JSON; GET still runs.
+`http` adds `http(method, url, headers={}, json=None, body=None, timeout=30)` — an undeclared host or method is an error, redirects off the allowlist are refused, `methods` defaults to `["GET"]` — plus `secret(name)`. It returns `{status, headers, body, json, error}`; a transport failure (refused, DNS, timeout, TLS, a refused redirect) does not raise, since Starlark has no `try/except`: it comes back as `status: 0` with a short `error` string (`None` on success) so a gather can degrade it into a row. `write` adds `write(path, text)`: vault-relative, inside a declared prefix, atomic, `False` when the content is already identical. Without `[capabilities]` those globals do not exist. `qilla gather <routine> --dry` (or `QILLA_DRY_RUN=1`) turns `write` and non-GET `http` into a `"_dry_actions"` list in the gather JSON; GET still runs.
 
 ```sh
 qilla routine check newsletters      # requirement · status · hint, one `cap` row per capability; exit 1 on a hard failure

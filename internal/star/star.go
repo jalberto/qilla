@@ -34,10 +34,17 @@
 // bundle's routine.toml, and each declaration injects exactly its helper:
 //
 //	http  = { hosts = [...], methods = [...] }  → http(method, url, headers={},
-//	         json=None, body=None, timeout=30) -> {status, headers, body, json}
-//	         and secret(name) -> str (reads <secrets_dir>/<name>).
+//	         json=None, body=None, timeout=30) -> {status, headers, body, json,
+//	         error} and secret(name) -> str (reads <secrets_dir>/<name>).
 //	         Undeclared host or method is an error; redirects off the
 //	         allowlist are refused; methods default to ["GET"].
+//	         A transport failure (connection refused, DNS, timeout, TLS, a
+//	         redirect refused because it leaves the allowlist) does NOT raise —
+//	         Starlark has no try/except: it comes back as {status: 0,
+//	         headers: {}, body: "", json: None, error: "<short reason>"} so a
+//	         gather degrades one failed call into a row. On success error is
+//	         None. Programmer errors still raise: undeclared host or method,
+//	         bad arguments, bad JSON in json=.
 //	write = { paths = [...] }                   → write(path, text) -> bool
 //	         vault-relative, inside a declared prefix, atomic (temp + rename),
 //	         False when the content is already identical.

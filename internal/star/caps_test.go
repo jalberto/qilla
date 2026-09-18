@@ -3,6 +3,7 @@ package star
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -59,12 +60,19 @@ def gather(ctx):
     g = http("GET", "`+srv.URL+`/x")
     p = http("POST", "`+srv.URL+`/y", headers={"Authorization": "Bearer zzz"}, json={"a": 1})
     return {"status": g["status"], "ctype": g["headers"]["content-type"],
-            "method": p["json"]["method"], "body": p["json"]["got"], "auth": p["json"]["auth"]}
+            "method": p["json"]["method"], "body": p["json"]["got"], "auth": p["json"]["auth"],
+            "err": g["error"] == None and p["error"] == None, "keys": sorted(g.keys())}
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
 	m := res.(map[string]any)
+	if m["err"] != true {
+		t.Errorf("a success must carry error: None, got %v", m["err"])
+	}
+	if got := m["keys"]; !equalStrings(got, []string{"body", "error", "headers", "json", "status"}) {
+		t.Errorf("result keys = %v", got)
+	}
 	if m["status"] != int64(200) {
 		t.Errorf("status = %v", m["status"])
 	}
@@ -77,6 +85,20 @@ def gather(ctx):
 	if m["auth"] != "Bearer zzz" {
 		t.Errorf("headers= not sent: %v", m["auth"])
 	}
+}
+
+// equalStrings compares a converted Starlark list of strings with want.
+func equalStrings(got any, want []string) bool {
+	l, ok := got.([]any)
+	if !ok || len(l) != len(want) {
+		return false
+	}
+	for i, w := range want {
+		if l[i] != w {
+			return false
+		}
+	}
+	return true
 }
 
 func quote(s string) string {
@@ -110,15 +132,53 @@ func TestHTTPErrorHidesHeaders(t *testing.T) {
 	host := hostOf(t, srv.URL)
 	srv.Close() // nothing listening any more: the transport fails
 	e := capEnv(t.TempDir(), &manifest.Capabilities{HTTP: &manifest.HTTPCap{Hosts: []string{host}}})
-	_, _, err := runSrc(t, e, `
+	res, _, err := runSrc(t, e, `
 def gather(ctx):
-    return {"x": http("GET", "http://`+host+`/x", headers={"Authorization": "Bearer SUPERSECRET"})["status"]}
+    r = http("GET", "http://`+host+`/x", headers={"Authorization": "Bearer SUPERSECRET"})
+    return {"status": r["status"], "error": r["error"], "body": r["body"], "json": r["json"],
+            "hn": len(r["headers"])}
 `)
-	if err == nil {
-		t.Fatal("want an error")
+	// a transport failure is a value, not a raise: the gather still returns
+	if err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(err.Error(), "SUPERSECRET") {
-		t.Fatalf("error leaks a header value: %v", err)
+	m := res.(map[string]any)
+	if m["status"] != int64(0) || m["body"] != "" || m["json"] != nil || m["hn"] != int64(0) {
+		t.Fatalf("failed request shape = %v", m)
+	}
+	msg, ok := m["error"].(string)
+	if !ok || !strings.Contains(msg, "http: GET http://"+host) {
+		t.Fatalf("error = %v", m["error"])
+	}
+	if strings.Contains(msg, "SUPERSECRET") {
+		t.Fatalf("error leaks a header value: %v", msg)
+	}
+}
+
+// a declared but closed 127.0.0.1 port: connection refused must degrade
+func TestHTTPConnectionRefusedIsAValue(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := l.Addr().String()
+	l.Close() // nothing listening on that port any more
+	e := capEnv(t.TempDir(), &manifest.Capabilities{HTTP: &manifest.HTTPCap{Hosts: []string{host}}})
+	res, _, err := runSrc(t, e, `
+def gather(ctx):
+    r = http("GET", "http://`+host+`/x")
+    return {"rows": [{"ok": r["status"] == 200, "why": r["error"]}]}
+`)
+	if err != nil {
+		t.Fatalf("connection refused must not raise: %v", err)
+	}
+	row := res.(map[string]any)["rows"].([]any)[0].(map[string]any)
+	if row["ok"] != false {
+		t.Fatalf("row = %v", row)
+	}
+	msg, _ := row["why"].(string)
+	if !strings.Contains(msg, "http: GET http://"+host+": request failed") {
+		t.Fatalf("error = %q", msg)
 	}
 }
 
@@ -130,12 +190,21 @@ func TestHTTPRedirectOffAllowlist(t *testing.T) {
 	}))
 	defer srv.Close()
 	e := capEnv(t.TempDir(), &manifest.Capabilities{HTTP: &manifest.HTTPCap{Hosts: []string{hostOf(t, srv.URL)}}})
-	_, _, err := runSrc(t, e, `
+	res, _, err := runSrc(t, e, `
 def gather(ctx):
-    return {"x": http("GET", "`+srv.URL+`/x")["status"]}
+    r = http("GET", "`+srv.URL+`/x")
+    return {"status": r["status"], "error": r["error"], "body": r["body"]}
 `)
-	if err == nil {
-		t.Fatal("redirect off the allowlist must fail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := res.(map[string]any)
+	if m["status"] != int64(0) || m["body"] != "" {
+		t.Fatalf("redirect off the allowlist must not be followed: %v", m)
+	}
+	msg, _ := m["error"].(string)
+	if !strings.Contains(msg, "redirect off the allowlist") {
+		t.Fatalf("error = %q", msg)
 	}
 }
 
@@ -241,6 +310,7 @@ def gather(ctx):
     p = http("POST", "`+srv.URL+`/act", json={"a": 1})
     w = write("Library/Newsletters/x.md", "hello")
     return {"get": g["status"], "post": p["status"], "dry": p["dry"], "wrote": w,
+            "dry_err": p["error"],
             "ctx_dry": ctx.dry_run, "n": len(ctx.actions), "global_dry": dry_run}
 `)
 	if err != nil {
@@ -249,6 +319,9 @@ def gather(ctx):
 	m := res.(map[string]any)
 	if m["get"] != int64(200) || hits != 1 {
 		t.Errorf("GET must still run: %v hits=%d", m["get"], hits)
+	}
+	if m["dry_err"] != nil {
+		t.Errorf("dry result error = %v", m["dry_err"])
 	}
 	if m["post"] != int64(0) || m["dry"] != true || m["wrote"] != false {
 		t.Errorf("mutations not suppressed: %v", m)

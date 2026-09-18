@@ -1,7 +1,9 @@
 package star
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -99,11 +101,12 @@ func (r *runner) bHTTP(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tu
 	}
 	if r.env.DryRun && method != "GET" {
 		r.addAction("http", method+" "+raw)
-		d := starlark.NewDict(5)
+		d := starlark.NewDict(6)
 		d.SetKey(starlark.String("status"), starlark.MakeInt(0))
 		d.SetKey(starlark.String("headers"), starlark.NewDict(0))
 		d.SetKey(starlark.String("body"), starlark.String(""))
 		d.SetKey(starlark.String("json"), starlark.None)
+		d.SetKey(starlark.String("error"), starlark.None)
 		d.SetKey(starlark.String("dry"), starlark.Bool(true))
 		return d, nil
 	}
@@ -166,19 +169,20 @@ func (r *runner) bHTTP(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tu
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		// never echo the request: headers may carry a secret
-		return nil, fmt.Errorf("http: %s %s://%s: request failed", method, u.Scheme, u.Host)
+		// Starlark has no try/except: a transport failure comes back as a
+		// value so a gather can degrade it into a row.
+		return httpFailure(method, u, err), nil
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	if err != nil {
-		return nil, fmt.Errorf("http: %s %s://%s: reading the response failed", method, u.Scheme, u.Host)
+		return httpFailure(method, u, errReadBody), nil
 	}
 	hd := starlark.NewDict(len(resp.Header))
 	for k, vs := range resp.Header {
 		hd.SetKey(starlark.String(strings.ToLower(k)), starlark.String(strings.Join(vs, ", ")))
 	}
-	out := starlark.NewDict(4)
+	out := starlark.NewDict(5)
 	out.SetKey(starlark.String("status"), starlark.MakeInt(resp.StatusCode))
 	out.SetKey(starlark.String("headers"), hd)
 	out.SetKey(starlark.String("body"), starlark.String(data))
@@ -192,7 +196,39 @@ func (r *runner) bHTTP(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tu
 		}
 	}
 	out.SetKey(starlark.String("json"), parsed)
+	out.SetKey(starlark.String("error"), starlark.None)
 	return out, nil
+}
+
+// errReadBody marks a response whose body could not be read to the end.
+var errReadBody = errors.New("reading the response failed")
+
+// httpFailure turns a transport-level failure into the http() result shape:
+// status 0 and a short reason. The request is never echoed — its headers may
+// carry a secret — and neither is the transport error's own text.
+func httpFailure(method string, u *url.URL, err error) *starlark.Dict {
+	reason := "request failed"
+	switch {
+	case errors.Is(err, errReadBody):
+		reason = "reading the response failed"
+	case strings.Contains(err.Error(), "capability http: redirect to host"):
+		// CheckRedirect's own message: hosts only, no header values.
+		reason = "redirect off the allowlist"
+	case strings.Contains(err.Error(), "http: too many redirects"):
+		reason = "too many redirects"
+	case errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err):
+		reason = "timed out"
+	case errors.Is(err, context.Canceled):
+		reason = "cancelled"
+	}
+	d := starlark.NewDict(5)
+	d.SetKey(starlark.String("status"), starlark.MakeInt(0))
+	d.SetKey(starlark.String("headers"), starlark.NewDict(0))
+	d.SetKey(starlark.String("body"), starlark.String(""))
+	d.SetKey(starlark.String("json"), starlark.None)
+	d.SetKey(starlark.String("error"),
+		starlark.String(fmt.Sprintf("http: %s %s://%s: %s", method, u.Scheme, u.Host, reason)))
+	return d
 }
 
 // bSecret reads <secrets_dir>/<name> so the script never builds key paths.
