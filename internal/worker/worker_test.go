@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -293,5 +294,33 @@ func TestGatherStarFailureIsAnError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "nope") || !strings.Contains(err.Error(), "halfway") {
 		t.Fatalf("error must carry the failure and the prints: %v", err)
+	}
+}
+
+func TestJSONOrString(t *testing.T) {
+	obj := map[string]any{"a": "b"}
+	cases := []struct {
+		name string
+		in   string
+		want any
+	}{
+		{"bare object", `{"a":"b"}`, obj},
+		{"fenced object", "```\n{\"a\":\"b\"}\n```", obj},
+		{"fenced json tag", "```json\n{\"a\":\"b\"}\n```", obj},
+		{"fenced array", "```json\n[1,2]\n```", []any{1.0, 2.0}},
+		{"fenced with blanks around", "\n\n```json\n{\"a\":\"b\"}\n```\n\n", obj},
+		{"prose then json", "Here it is: {\"a\":\"b\"}", "Here it is: {\"a\":\"b\"}"},
+		{"json then prose", "{\"a\":\"b\"} and that's it", "{\"a\":\"b\"} and that's it"},
+		{"invalid json", "{not json}", "{not json}"},
+		{"fenced invalid json", "```json\n{nope}\n```", "```json\n{nope}\n```"},
+		{"plain text", "hello", "hello"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := jsonOrString(c.in)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("jsonOrString(%q) = %#v, want %#v", c.in, got, c.want)
+			}
+		})
 	}
 }

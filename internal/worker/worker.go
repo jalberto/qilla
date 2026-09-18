@@ -510,11 +510,28 @@ func (w *Worker) save(rec Record) {
 }
 
 func jsonOrString(s string) any {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[") {
+	t := stripFence(strings.TrimSpace(s))
+	if strings.HasPrefix(t, "{") || strings.HasPrefix(t, "[") {
 		var v any
-		if json.Unmarshal([]byte(s), &v) == nil {
+		if json.Unmarshal([]byte(t), &v) == nil {
 			return v
+		}
+	}
+	return s
+}
+
+// stripFence removes a markdown code fence (```, optionally with a language
+// tag) wrapping the whole text; anything else is returned untouched, so JSON
+// embedded in prose still fails to parse and stays a string.
+func stripFence(s string) string {
+	if !strings.HasPrefix(s, "```") || !strings.HasSuffix(s, "```") || len(s) < 6 {
+		return s
+	}
+	body := strings.TrimSuffix(s, "```")
+	// drop the opening fence line (``` plus an optional language tag)
+	if i := strings.IndexByte(body, '\n'); i >= 0 {
+		if tag := strings.TrimSpace(body[3:i]); !strings.ContainsAny(tag, " \t`") {
+			return strings.TrimSpace(body[i+1:])
 		}
 	}
 	return s
