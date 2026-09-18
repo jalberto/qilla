@@ -26,13 +26,16 @@ type Options struct {
 	Agent    string // ai-* only
 	Output   string // vault-relative, may contain {{date}}
 	Append   bool
-	Star     bool // scaffold gather.star (the default); false → gather.sh (--sh)
+	Star     bool   // scaffold gather.star (the default); false → gather.sh (--sh)
+	Summary  string // one line for routine.toml
 }
 
 // Files returns the vault files to create: relative path → body.
 func Files(o Options) map[string]string {
 	dir := filepath.Join(worker.RoutinesDir, o.Name)
-	f := map[string]string{}
+	f := map[string]string{
+		filepath.Join(dir, "routine.toml"): install.RoutineManifest(o.Name, o.Summary),
+	}
 	if o.Star {
 		f[filepath.Join(dir, "gather.star")] = install.RoutineGatherStar(o.Name)
 	} else {

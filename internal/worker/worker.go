@@ -45,6 +45,9 @@ type Data struct {
 	Date     string `json:"date"`
 	Gathered any    `json:"gathered"` // parsed JSON when gather.sh printed JSON, else the raw string
 	Result   any    `json:"result"`   // parsed JSON when the model returned JSON, else the raw string
+	// Settings is [routines.<name>.settings]: the user-specific half of a
+	// shareable bundle, available to templates as `settings`.
+	Settings map[string]any `json:"settings,omitempty"`
 }
 
 // Record is what a run leaves behind for the ledger and the UI.
@@ -162,7 +165,7 @@ func (w *Worker) run(ctx context.Context, j *queue.Job, rec *Record) error {
 		sum := sha256.Sum256([]byte(gathered))
 		rec.Digest = hex.EncodeToString(sum[:8])
 	}
-	data := Data{Routine: j.Routine, Date: w.Now().Format("2006-01-02"), Gathered: jsonOrString(gathered)}
+	data := Data{Routine: j.Routine, Date: w.Now().Format("2006-01-02"), Gathered: jsonOrString(gathered), Settings: r.Settings}
 
 	if r.Kind == config.KindScript {
 		if !hasGather {
@@ -360,6 +363,12 @@ func (w *Worker) GatherEnv(name string) map[string]string {
 		"QILLA_BROWSER":       "qilla browser --agent " + name,
 		"QILLA_ARTIFACTS_DIR": filepath.Join(w.Cfg.StateDir, "artifacts-inbox"),
 	}
+	// the routine's settings: the user-specific half of a shareable bundle
+	if st := w.Cfg.Routines[name].Settings; len(st) > 0 {
+		if b, err := json.Marshal(st); err == nil {
+			e["QILLA_SETTINGS"] = string(b)
+		}
+	}
 	// secrets (systemd LoadCredentialEncrypted) reach the gather only, never the model
 	if cd := os.Getenv("CREDENTIALS_DIRECTORY"); cd != "" {
 		e["QILLA_SECRETS_DIR"] = cd
@@ -422,6 +431,7 @@ func (w *Worker) gatherStar(ctx context.Context, dir, name string) (string, bool
 	senv := star.Env{
 		Routine: name, Date: env["QILLA_DATE"], Vault: w.Cfg.Vault,
 		SecretsDir: env["QILLA_SECRETS_DIR"], Vars: env, Timeout: gatherTimeout,
+		Settings: w.Cfg.Routines[name].Settings,
 	}
 	if w.Mem != nil {
 		senv.MemSearch = func(q string, n int) ([]star.MemEntry, error) {

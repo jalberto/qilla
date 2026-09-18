@@ -181,6 +181,47 @@ This writes `Qilla/Routines/calendar-today/{gather.star,template.md}` in the vau
 3. AI kinds only: add `prompt.md`, set `--agent`/a tier and a budget, then `qilla run <name>` once as the paid proof.
 4. `qilla init` for the timer, `systemctl --user enable --now qilla-<name>.timer`, then `qilla doctor`.
 
+### Shareable bundles: `routine.toml`
+
+A bundle is generic code; everything user-specific lives outside it, in `[routines.<name>.settings]` in `qilla.toml` and in user data files inside the bundle. `Qilla/Routines/<name>/routine.toml` declares that contract, and `qilla routine check` verifies it before the routine is ever enabled:
+
+```toml
+name = "newsletters"
+summary = "Triage newsletters from Gmail into a daily feed note"
+
+[requires]                # hard: anything missing fails the check
+commands = ["msgvault", "curl"]
+secrets  = []             # names stored with `qilla secret set`
+settings = ["accounts"]   # keys that must exist in [routines.newsletters.settings]
+
+[[optional]]              # soft: missing pieces disable the feature, the check notes it
+name     = "karakeep"
+settings = ["karakeep_url"]
+secrets  = ["karakeep"]
+commands = []
+hint     = "Set settings.karakeep_url and `qilla secret set karakeep` to save top stories."
+
+[[user_files]]            # data the user supplies, relative to the bundle
+path     = "preferences.md"
+required = false
+hint     = "Interests + services you use; ranking uses it."
+
+[[signals]]               # evidence the routine has something to work with
+name   = "newsletter label"
+run    = ["msgvault", "search", "label:Newsletter newer_than:30d", "--limit", "1", "--json"]
+expect = "json-nonempty"  # nonempty | ok | json-nonempty
+hint   = "No mail labelled Newsletter in the last 30 days: create the Gmail filters first."
+```
+
+`run` may contain `{{settings.key}}` placeholders and is capped at 20 s. Settings reach the gather as `settings["accounts"]` in `gather.star` (also `ctx.settings`) and as `$QILLA_SETTINGS` (a JSON object) in `gather.sh`, and templates see them as `settings`.
+
+```sh
+qilla routine check newsletters      # requirement · status · hint; exit 1 on a hard failure
+qilla routine check --all [--json]
+```
+
+`qilla init` warns for every configured routine and writes no timer for one that fails a hard check (`--force` writes it anyway); `qilla run` refuses the same routine unless `--force`; `qilla doctor` shows one soft row per failing routine. A bundle without `routine.toml` is a legacy bundle, not an error — the check reports `no manifest`.
+
 A routine is an isolated bundle: its own gather, template and prompt, no helper scripts shared between routines. The `qilla:routine` skill in [`skills/routine/`](skills/routine/SKILL.md) walks a Claude Code session through the design and defaults to no model at all. Worked bundles live in [`examples/routines/`](examples/routines).
 
 ## Command reference
@@ -190,9 +231,10 @@ A routine is an isolated bundle: its own gather, template and prompt, no helper 
 | `qilla init [--force] [--print]` | config, runtime mise.toml, status line, systemd units |
 | `qilla doctor [--json]` · `doctor --health [--count]` · `doctor fix` | every check that would make tomorrow fail · the stack watch alone (exit 1 if anything is wrong) · restart failed watched units |
 | `qilla version` · `qilla help` | version · usage |
-| `qilla new routine <name> …` | scaffold a routine bundle and its config block |
+| `qilla new routine <name> …` | scaffold a routine bundle (incl. `routine.toml`) and its config block |
+| `qilla routine check <name>` · `--all` · `--json` | a bundle's requirements, optional features and signals; exit 1 on a hard failure |
 | `qilla gather <routine>` | run only the gather step and print its JSON — no model, $0 |
-| `qilla run <routine>` | one routine now, bypassing the queue |
+| `qilla run [--force] <routine>` | one routine now, bypassing the queue (`--force` runs one that fails its check) |
 | `qilla enqueue <routine>` · `qilla enqueue ask --text "…"` | what timers and the page do |
 | `qilla ask "<text>"` | headless one-off through the queue; waits and prints |
 | `qilla chat` (alias `attach`) | Claude Code in the vault as the agent: persona, tools, resumed session, openings |

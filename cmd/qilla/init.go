@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/jalberto/qilla/internal/config"
@@ -57,6 +58,9 @@ func cmdInit(args []string) error {
 	home, _ := os.UserHomeDir()
 	p := install.Paths{ConfigDir: dir, UnitDir: filepath.Join(home, ".config", "systemd", "user"), Qilla: self, Mise: mise}
 	units := install.Units(cfg, p)
+	// every routine's manifest is checked before its timer is written: a
+	// shareable bundle with a missing requirement must not start silently.
+	units = checkRoutinesForInit(cfg, units, *force)
 	// prune units of routines that no longer exist in the config
 	if es, err := os.ReadDir(p.UnitDir); err == nil {
 		for _, e := range es {
@@ -80,6 +84,32 @@ func cmdInit(args []string) error {
 	fmt.Println(indent(install.EnableCommands(units, dir)))
 	fmt.Println("Persona and rules live in the vault:", cfg.VaultPath(cfg.Persona), "·", cfg.VaultPath(cfg.Rules))
 	return nil
+}
+
+// checkRoutinesForInit warns for every configured routine whose manifest check
+// fails and drops its timer/service from units, unless force says otherwise.
+func checkRoutinesForInit(cfg *config.Config, units map[string]string, force bool) map[string]string {
+	env := manifestEnv(cfg)
+	names := make([]string, 0, len(cfg.Routines))
+	for n := range cfg.Routines {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		msg := checkBlocks(cfg, n, env)
+		if msg == "" {
+			continue
+		}
+		fmt.Fprintln(os.Stderr, "qilla:", msg)
+		if force {
+			fmt.Fprintf(os.Stderr, "qilla: writing the timer for %s anyway (--force)\n", n)
+			continue
+		}
+		delete(units, "qilla-"+n+".timer")
+		delete(units, "qilla-"+n+".service")
+		fmt.Fprintf(os.Stderr, "qilla: no timer written for %s (--force to write it anyway)\n", n)
+	}
+	return units
 }
 
 func report(wrote bool, path string) {

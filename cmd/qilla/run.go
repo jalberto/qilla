@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 
@@ -17,12 +18,24 @@ import (
 // cmdRun: qilla run <routine> — execute one routine now, bypassing the queue
 // (debugging). The run is recorded like any other.
 func cmdRun(args []string) error {
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	force := fs.Bool("force", false, "run even when `qilla routine check` fails")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	args = fs.Args()
 	if len(args) != 1 {
-		return fmt.Errorf("usage: qilla run <routine>")
+		return fmt.Errorf("usage: qilla run [--force] <routine>")
 	}
 	cfg, err := config.Load(config.DefaultPath())
 	if err != nil {
 		return err
+	}
+	if msg := checkBlocks(cfg, args[0], manifestEnv(cfg)); msg != "" {
+		if !*force {
+			return fmt.Errorf("%s; --force to run anyway", msg)
+		}
+		fmt.Fprintln(os.Stderr, "qilla:", msg, "— running anyway (--force)")
 	}
 	if err := os.MkdirAll(cfg.StateDir, 0o755); err != nil {
 		return err

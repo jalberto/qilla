@@ -7,6 +7,7 @@ import (
 
 	"github.com/jalberto/qilla/internal/config"
 	"github.com/jalberto/qilla/internal/doctor"
+	"github.com/jalberto/qilla/internal/manifest"
 )
 
 // cmdDoctor: qilla doctor [--json] | qilla doctor fix
@@ -29,7 +30,15 @@ func cmdDoctor(args []string) error {
 		}
 		return doctorHealth(doctor.Health(cfg, doctor.Default(path)), *count, *asJSON)
 	}
-	cs := doctor.Run(cfg, err, doctor.Default(path))
+	env := doctor.Default(path)
+	if cfg != nil {
+		menv := manifestEnv(cfg)
+		env.RoutineCheck = func(name string) ([]manifest.Result, error) {
+			rs, _, err := checkRoutine(cfg, name, menv)
+			return rs, err
+		}
+	}
+	cs := doctor.Run(cfg, err, env)
 	if *asJSON {
 		os.Stdout.Write(doctor.JSON(cs))
 		fmt.Println()

@@ -90,9 +90,53 @@ def gather(ctx):
 
 Reference bundle: `Qilla/Routines/retro/gather.star`.
 
+## Shareable by default
+
+A routine bundle is **code someone else can install**. Nothing in `Qilla/Routines/<name>/` may be specific to one user:
+
+- **User-specific criteria live in settings.** Accounts, URLs, thresholds, names, feed lists → `[routines.<name>.settings]` in `qilla.toml`. The gather reads them: `settings["accounts"]` in `gather.star` (also `ctx.settings`), `$QILLA_SETTINGS` (a JSON object) in `gather.sh`; templates see them as `settings`. Hardcoding an address, a domain or a person's name in a gather is a bug.
+- **Longer user data is a user_file** in the bundle (`preferences.md`, `accounts.md`): declared in `[[user_files]]`, `required` only when the routine cannot work without it.
+- **Every external tool the bundle can live without is an `[[optional]]` feature**, and the code checks it before use — if the setting/secret/command is absent, the feature is skipped, never an error.
+- **Declare `[[signals]]`**: a cheap command proving the routine has something to work with (mail under that label, notes in that folder). A green install with no input is the failure people never notice.
+
+That contract is `routine.toml` in the bundle:
+
+```toml
+name = "newsletters"
+summary = "Triage newsletters from Gmail into a daily feed note"
+
+[requires]                # hard: missing ⇒ the check fails, no timer, no run
+commands = ["msgvault", "curl"]
+secrets  = []             # names under `qilla secret set`
+settings = ["accounts"]   # keys that must exist in [routines.newsletters.settings]
+
+[[optional]]              # soft: missing ⇒ the feature is disabled, the check notes it
+name     = "karakeep"
+settings = ["karakeep_url"]
+secrets  = ["karakeep"]
+commands = []
+hint     = "Set settings.karakeep_url and `qilla secret set karakeep` to save top stories."
+
+[[user_files]]
+path     = "preferences.md"
+required = false
+hint     = "Interests + services you use; ranking uses it."
+
+[[signals]]
+name   = "newsletter label"
+run    = ["msgvault", "search", "label:Newsletter newer_than:30d", "--limit", "1", "--json"]
+expect = "json-nonempty"  # nonempty | ok | json-nonempty
+hint   = "No mail labelled Newsletter in the last 30 days: create the Gmail filters first."
+```
+
+`run` may contain `{{settings.key}}` placeholders and gets 20 s. A bundle without `routine.toml` is legacy, not an error — the check just says "no manifest".
+
+**Run `qilla routine check <name>` before `qilla init`**: it prints requirement · status · hint and exits 1 on a hard failure. `qilla init` refuses to write the timer of a failing routine (`--force` overrides, and says so), `qilla run` refuses to run it (`--force`), and `qilla doctor` carries one soft row per failing routine.
+
 ## 4. Finish
 ```sh
-qilla init          # writes qilla-<name>.timer/.service
+qilla routine check <name>  # ALWAYS FIRST: requirements, optional features, signals
+qilla init          # writes qilla-<name>.timer/.service (skips routines failing the check)
 systemctl --user enable --now qilla-<name>.timer
 qilla gather <name> # ALWAYS: the gather step alone, $0 — iterate here until the JSON is right
 qilla doctor        # ALWAYS: template validates, schedule parses, timer active
@@ -116,5 +160,7 @@ Never claim a routine works without those. Log the new routine where the project
 - A tool's database when it has a CLI.
 - A helper script outside the bundle, or shared between routines.
 - A pinned model id, or Fable, as a routine default.
+- A user's account, domain, folder or name hardcoded in a gather instead of `settings`.
+- An external tool used without an `[[optional]]` block and a code path that works without it.
 - A routine without `window` when it costs money, or with a budget that cannot absorb a handful of runs.
 - Overwriting an existing bundle (`qilla new routine` refuses; edit instead).

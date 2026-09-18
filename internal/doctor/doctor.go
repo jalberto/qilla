@@ -18,6 +18,7 @@ import (
 	"github.com/jalberto/qilla/internal/config"
 	"github.com/jalberto/qilla/internal/install"
 	"github.com/jalberto/qilla/internal/loader"
+	"github.com/jalberto/qilla/internal/manifest"
 	"github.com/jalberto/qilla/internal/mem"
 	"github.com/jalberto/qilla/internal/models"
 	"github.com/jalberto/qilla/internal/prices"
@@ -51,6 +52,9 @@ type Env struct {
 	Sleep         func(time.Duration)                        // settle time between restart and re-check; nil = do not wait
 	Jobs          func(*config.Config) ([]JobProblem, error) // failed/parked queue jobs; nil = skip
 	Now           func() time.Time                           // fixed clock in tests; nil = time.Now
+	// RoutineCheck evaluates a routine bundle's routine.toml requirements;
+	// nil = skip (and legacy bundles without a manifest return no results).
+	RoutineCheck func(name string) ([]manifest.Result, error)
 	// mise shims as the units see them: the generated shim names, which of a
 	// candidate set has no version inside the unit, the backend spec to pin, and
 	// whether a system binary of that name would satisfy the shim's fallback.
@@ -236,6 +240,25 @@ func Run(cfg *config.Config, loadErr error, env Env) []Check {
 		}
 		if r.Kind == config.KindScript && shErr != nil && starErr != nil {
 			add("routine "+name, false, true, "Qilla/Routines/"+name+"/gather.sh or gather.star missing (kind script)")
+		}
+	}
+
+	// routine manifests: one soft row per routine whose requirements are unmet
+	if env.RoutineCheck != nil {
+		names := make([]string, 0, len(cfg.Routines))
+		for n := range cfg.Routines {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			rs, err := env.RoutineCheck(n)
+			if err != nil {
+				add("routine "+n, false, false, "routine "+n+": "+err.Error())
+				continue
+			}
+			if f := manifest.FirstFailure(rs); f != "" {
+				add("routine "+n, false, false, "routine "+n+": "+f)
+			}
 		}
 	}
 

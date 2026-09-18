@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jalberto/qilla/internal/config"
+	"github.com/jalberto/qilla/internal/manifest"
 )
 
 func fakeEnv(t *testing.T, present map[string]bool, loggedIn bool) (Env, *config.Config) {
@@ -275,5 +276,34 @@ func TestFormatShimHintAndRow(t *testing.T) {
 	env.ShimNames = nil
 	if c := find(Run(cfg, nil, env), "mise shims"); c.Name != "missing:mise shims" {
 		t.Fatalf("no shim dir must skip the row: %+v", c)
+	}
+}
+
+// A routine whose manifest requirements are unmet gets one soft row naming the
+// first failure; a green (or manifest-less) routine adds nothing.
+func TestRoutineCheckRow(t *testing.T) {
+	env, cfg := fakeEnv(t, map[string]bool{"claude": true}, true)
+	env.RoutineCheck = func(name string) ([]manifest.Result, error) {
+		return []manifest.Result{
+			{Item: "command msgvault", Status: manifest.StatusMissing, Hard: true, Hint: "install msgvault"},
+		}, nil
+	}
+	c := find(Run(cfg, nil, env), "routine brief")
+	if c.Name == "" {
+		t.Fatal("no routine row")
+	}
+	if c.OK || c.Hard {
+		t.Fatalf("the manifest row must be a soft failure: %+v", c)
+	}
+	if !strings.Contains(c.Info, "routine brief: command msgvault") || !strings.Contains(c.Info, "install msgvault") {
+		t.Fatalf("info must name the first failing item: %q", c.Info)
+	}
+
+	// all green → no row of ours
+	env.RoutineCheck = func(string) ([]manifest.Result, error) { return nil, nil }
+	for _, c := range Run(cfg, nil, env) {
+		if c.Name == "routine brief" && strings.Contains(c.Info, "routine brief:") {
+			t.Fatalf("green routine must add no row: %+v", c)
+		}
 	}
 }

@@ -234,3 +234,55 @@ func makeTestDB(path string) error {
 		INSERT INTO t VALUES (1, 'alpha', 1.5), (2, 'beta', NULL);`)
 	return err
 }
+
+// [routines.<name>.settings] reaches gather.star as the `settings` global (and
+// as ctx.settings): a shareable bundle reads its user-specific values there.
+func TestSettingsGlobal(t *testing.T) {
+	vault := t.TempDir()
+	src := `
+def gather(ctx):
+    return {
+        "accounts": settings["accounts"],
+        "limit": settings["limit"],
+        "nested": settings["deep"]["k"],
+        "via_ctx": ctx.settings["accounts"],
+        "keys": sorted(settings.keys()),
+    }
+`
+	p := write(t, vault, "gather.star", src)
+	e := env(vault)
+	e.Settings = map[string]any{
+		"accounts": "ja@example.com",
+		"limit":    int64(20),
+		"deep":     map[string]any{"k": "v"},
+	}
+	res, _, err := Run(context.Background(), p, e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := res.(map[string]any)
+	if m["accounts"] != "ja@example.com" || m["via_ctx"] != "ja@example.com" {
+		t.Fatalf("accounts: %+v", m)
+	}
+	if m["limit"] != int64(20) || m["nested"] != "v" {
+		t.Fatalf("limit/nested: %+v", m)
+	}
+	if got := m["keys"].([]any); len(got) != 3 || got[0] != "accounts" {
+		t.Fatalf("keys: %v", got)
+	}
+}
+
+// No settings configured: the global exists and is an empty dict, so a bundle
+// can do settings.get(...) without guarding.
+func TestSettingsGlobalEmpty(t *testing.T) {
+	vault := t.TempDir()
+	p := write(t, vault, "gather.star", "def gather(ctx):\n    return {\"n\": len(settings), \"x\": settings.get(\"x\", \"default\")}\n")
+	res, _, err := Run(context.Background(), p, env(vault))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := res.(map[string]any)
+	if m["n"] != int64(0) || m["x"] != "default" {
+		t.Fatalf("empty settings: %+v", m)
+	}
+}

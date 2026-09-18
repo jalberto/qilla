@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jalberto/qilla/internal/config"
+	"github.com/jalberto/qilla/internal/manifest"
 )
 
 func cfg(t *testing.T) *config.Config {
@@ -28,8 +29,16 @@ func TestScriptRoutineFilesAndToml(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(w) != 3 { // gather.sh, template.md, qilla.toml
+	if len(w) != 4 { // routine.toml, gather.sh, template.md, qilla.toml
 		t.Fatalf("written: %v", w)
+	}
+	// the scaffolded manifest must parse and name the routine
+	m, err := manifest.Load(c.VaultPath("Qilla/Routines/calendar-today"))
+	if err != nil {
+		t.Fatalf("scaffolded routine.toml: %v", err)
+	}
+	if m == nil || m.Name != "calendar-today" {
+		t.Fatalf("manifest: %+v", m)
 	}
 	if _, err := os.Stat(c.VaultPath("Qilla/Routines/calendar-today/prompt.md")); err == nil {
 		t.Fatal("script kind must not get prompt.md")

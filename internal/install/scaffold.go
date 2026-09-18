@@ -5,6 +5,47 @@ import "fmt"
 // Routine scaffolds shared by `qilla new routine` and Ensure (which fills in
 // whatever a configured routine is missing so a run never fails on a missing file).
 
+// RoutineManifest scaffolds routine.toml: the bundle's contract. A routine is
+// shareable code; everything user-specific lives in
+// [routines.<name>.settings] and in user_files, and the manifest is what makes
+// that checkable: qilla routine check <name>.
+func RoutineManifest(name, summary string) string {
+	return fmt.Sprintf(`name = %q
+summary = %q
+
+# [requires] is hard: anything missing here means the routine cannot run, and
+# "qilla routine check" fails (qilla init writes no timer, qilla run refuses).
+[requires]
+commands = []   # binaries that must be on PATH
+secrets  = []   # names stored with "qilla secret set <name>"
+settings = []   # keys that must exist in [routines.%s.settings] in qilla.toml
+
+# Every external tool the bundle can do without is an [[optional]] feature:
+# missing pieces disable it (the gather must check before using it) and the
+# check prints a note instead of failing. Repeat the block per feature.
+# [[optional]]
+# name     = "karakeep"
+# settings = ["karakeep_url"]
+# secrets  = ["karakeep"]
+# commands = []
+# hint     = "Set settings.karakeep_url and store the karakeep secret to save top stories."
+
+# Data the user provides, relative to this bundle. required = true fails the check.
+# [[user_files]]
+# path     = "preferences.md"
+# required = false
+# hint     = "Interests + services you use; ranking uses it."
+
+# Evidence the routine has something to work with. run may contain
+# {{settings.key}} placeholders; expect is nonempty | ok | json-nonempty.
+# [[signals]]
+# name   = "mail to triage"
+# run    = ["msgvault", "search", "label:Newsletter newer_than:30d", "--limit", "1", "--json"]
+# expect = "json-nonempty"
+# hint   = "No mail labelled Newsletter in the last 30 days: create the Gmail filters first."
+`, name, summary, name)
+}
+
 // RoutineGatherSh is the shell gather step (`qilla new routine --sh`):
 // any language, prints one JSON object.
 func RoutineGatherSh(name string) string {

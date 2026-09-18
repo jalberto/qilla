@@ -72,7 +72,11 @@ type Env struct {
 	Vault      string
 	SecretsDir string
 	Vars       map[string]string // the QILLA_* variables, also exported to run()
-	Timeout    time.Duration     // 0 → DefaultTimeout
+	// Settings is [routines.<name>.settings]: the user-specific configuration
+	// a shareable bundle reads instead of hardcoding. Exposed as the global
+	// `settings` dict (and as ctx.settings).
+	Settings map[string]any
+	Timeout  time.Duration // 0 → DefaultTimeout
 	// MemSearch and MemState are read-only working-memory access for the
 	// `mem` module. nil = the module's calls fail with a clear message.
 	MemSearch func(query string, n int) ([]MemEntry, error)
@@ -162,25 +166,39 @@ func (r *runner) ctxValue() starlark.Value {
 		"vault":       starlark.String(r.env.Vault),
 		"env":         vars,
 		"secrets_dir": starlark.String(r.env.SecretsDir),
+		"settings":    r.settingsValue(),
 	})
+}
+
+// settingsValue exposes Env.Settings as a frozen Starlark value.
+func (r *runner) settingsValue() starlark.Value {
+	v, err := toStar(r.env.Settings)
+	if err != nil || v == nil {
+		d := starlark.NewDict(0)
+		d.Freeze()
+		return d
+	}
+	v.Freeze()
+	return v
 }
 
 func (r *runner) predeclared() starlark.StringDict {
 	return starlark.StringDict{
-		"json":    json.Module,
-		"time":    starlarktime.Module,
-		"math":    starlarkmath.Module,
-		"re":      r.reModule(),
-		"sqlite":  r.sqliteModule(),
-		"mem":     r.memModule(),
-		"run":     starlark.NewBuiltin("run", r.bRun),
-		"read":    starlark.NewBuiltin("read", r.bRead),
-		"exists":  starlark.NewBuiltin("exists", r.bExists),
-		"glob":    starlark.NewBuiltin("glob", r.bGlob),
-		"listdir": starlark.NewBuiltin("listdir", r.bListdir),
-		"mtime":   starlark.NewBuiltin("mtime", r.bMtime),
-		"env":     starlark.NewBuiltin("env", r.bEnv),
-		"now":     starlark.NewBuiltin("now", r.bNow),
+		"json":     json.Module,
+		"time":     starlarktime.Module,
+		"math":     starlarkmath.Module,
+		"re":       r.reModule(),
+		"sqlite":   r.sqliteModule(),
+		"mem":      r.memModule(),
+		"run":      starlark.NewBuiltin("run", r.bRun),
+		"read":     starlark.NewBuiltin("read", r.bRead),
+		"exists":   starlark.NewBuiltin("exists", r.bExists),
+		"glob":     starlark.NewBuiltin("glob", r.bGlob),
+		"listdir":  starlark.NewBuiltin("listdir", r.bListdir),
+		"mtime":    starlark.NewBuiltin("mtime", r.bMtime),
+		"env":      starlark.NewBuiltin("env", r.bEnv),
+		"now":      starlark.NewBuiltin("now", r.bNow),
+		"settings": r.settingsValue(),
 	}
 }
 
@@ -448,6 +466,57 @@ func sortedKeys(m map[string]string) []string {
 	}
 	sort.Strings(ks)
 	return ks
+}
+
+// toStar converts plain Go values (as decoded from TOML/JSON) into Starlark.
+// Anything it cannot map becomes its fmt string, so a settings value never
+// breaks a gather.
+func toStar(v any) (starlark.Value, error) {
+	switch t := v.(type) {
+	case nil:
+		return starlark.None, nil
+	case bool:
+		return starlark.Bool(t), nil
+	case string:
+		return starlark.String(t), nil
+	case int:
+		return starlark.MakeInt(t), nil
+	case int64:
+		return starlark.MakeInt64(t), nil
+	case float64:
+		return starlark.Float(t), nil
+	case []any:
+		vs := make([]starlark.Value, 0, len(t))
+		for _, e := range t {
+			sv, err := toStar(e)
+			if err != nil {
+				return nil, err
+			}
+			vs = append(vs, sv)
+		}
+		return starlark.NewList(vs), nil
+	case []string:
+		return strList(t), nil
+	case map[string]any:
+		d := starlark.NewDict(len(t))
+		ks := make([]string, 0, len(t))
+		for k := range t {
+			ks = append(ks, k)
+		}
+		sort.Strings(ks)
+		for _, k := range ks {
+			sv, err := toStar(t[k])
+			if err != nil {
+				return nil, err
+			}
+			if err := d.SetKey(starlark.String(k), sv); err != nil {
+				return nil, err
+			}
+		}
+		return d, nil
+	default:
+		return starlark.String(fmt.Sprint(v)), nil
+	}
 }
 
 // toGo converts a Starlark value to plain Go values (JSON-encodable).

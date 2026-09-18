@@ -18,6 +18,7 @@ func cmdNew(args []string) error {
 	}
 	fs := flag.NewFlagSet("new routine", flag.ContinueOnError)
 	o := routine.Options{Name: args[1]}
+	fs.StringVar(&o.Summary, "summary", "", "one line describing the routine (routine.toml)")
 	fs.StringVar(&o.Kind, "kind", "script", "script | ai-fresh | ai-resumed")
 	fs.StringVar(&o.Schedule, "schedule", "", "systemd OnCalendar, e.g. \"*-*-* 08:30\"")
 	fs.StringVar(&o.Window, "window", "", "HH:MM-HH:MM in which the routine may run")

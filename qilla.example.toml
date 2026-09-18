@@ -152,6 +152,16 @@ window = "07:30-20:00"
 must_run = false
 scope = ["persona", "rules", "facts:work"]
 
+# Everything user-specific lives here, never in the bundle: a routine is
+# shareable code, its settings are yours. The gather reads them as
+# settings["accounts"] (gather.star) or $QILLA_SETTINGS (gather.sh, JSON), and
+# the template as {{ settings.accounts }}. Keys the bundle requires are listed
+# in its Qilla/Routines/<name>/routine.toml — check with `qilla routine check`.
+[routines.email-triage.settings]
+accounts = ["me@example.com"]
+vip = ["boss@example.com"]
+max_threads = 40
+
 [routines.versions]
 kind = "script"
 schedule = "Mon *-*-* 09:00"

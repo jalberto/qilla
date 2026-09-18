@@ -324,3 +324,49 @@ func TestJSONOrString(t *testing.T) {
 		})
 	}
 }
+
+// [routines.<name>.settings] reaches gather.sh as $QILLA_SETTINGS (JSON) and
+// the template as data.settings; with no settings the variable is absent.
+func TestGatherSeesSettingsEnv(t *testing.T) {
+	e := setup(t, config.Routine{Kind: config.KindScript, Settings: map[string]any{"accounts": "ja@example.com"}},
+		"#!/bin/sh\nprintf '{\"settings\":%s}' \"${QILLA_SETTINGS:-null}\"\n")
+	out, ok, err := e.w.Gather(context.Background(), "r")
+	if err != nil || !ok {
+		t.Fatalf("gather: %v (ok=%v)", err, ok)
+	}
+	if !strings.Contains(out, `"accounts":"ja@example.com"`) {
+		t.Fatalf("gather must see QILLA_SETTINGS: %s", out)
+	}
+	if got := e.w.GatherEnv("r")["QILLA_SETTINGS"]; got != `{"accounts":"ja@example.com"}` {
+		t.Fatalf("QILLA_SETTINGS: %q", got)
+	}
+}
+
+func TestGatherEnvNoSettings(t *testing.T) {
+	e := setup(t, config.Routine{Kind: config.KindScript}, "#!/bin/sh\necho '{}'\n")
+	if _, ok := e.w.GatherEnv("r")["QILLA_SETTINGS"]; ok {
+		t.Fatal("no settings configured: QILLA_SETTINGS must be absent")
+	}
+}
+
+// capture is a Renderer that keeps the last envelope.
+type capture struct{ data Data }
+
+func (c *capture) Render(_ context.Context, _ string, _ config.Routine, d Data) error {
+	c.data = d
+	return nil
+}
+
+// The template envelope carries settings alongside gathered/result.
+func TestTemplateDataCarriesSettings(t *testing.T) {
+	e := setup(t, config.Routine{Kind: config.KindScript, Output: "out.md",
+		Settings: map[string]any{"accounts": "ja@example.com"}}, "#!/bin/sh\necho '{\"a\":1}'\n")
+	c := &capture{}
+	e.w.Render = c
+	if err := e.w.Run(context.Background(), &queue.Job{Routine: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	if c.data.Settings["accounts"] != "ja@example.com" {
+		t.Fatalf("template settings: %+v", c.data.Settings)
+	}
+}

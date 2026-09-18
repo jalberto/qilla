@@ -55,9 +55,14 @@ type Routine struct {
 	Template        string   `toml:"template"`
 	Append          bool     `toml:"append"`
 	MaxAttempts     int      `toml:"max_attempts"`
-	Input           string   `toml:"input"`  // gather (default) | runs (ledger rows since the last run: learn) | pending (items queued with `qilla enqueue <r> --text`: judge)
-	Rules           string   `toml:"rules"`  // vault-relative rules file injected before the task (judge)
-	Commit          bool     `toml:"commit"` // after a successful run qilla commits the vault (git add -A minus .obsidian); the model never runs git
+	Input           string   `toml:"input"` // gather (default) | runs (ledger rows since the last run: learn) | pending (items queued with `qilla enqueue <r> --text`: judge)
+	Rules           string   `toml:"rules"` // vault-relative rules file injected before the task (judge)
+	// Settings is the routine's user-specific configuration: a shareable
+	// bundle is generic code, everything personal (accounts, URLs, thresholds)
+	// lives here. Passed to gather as $QILLA_SETTINGS (JSON) and as the
+	// `settings` global in gather.star, and to templates as `settings`.
+	Settings map[string]any `toml:"settings"`
+	Commit   bool           `toml:"commit"` // after a successful run qilla commits the vault (git add -A minus .obsidian); the model never runs git
 }
 
 // Web is the UI listener.
