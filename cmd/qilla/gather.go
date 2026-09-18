@@ -9,12 +9,24 @@ import (
 	"github.com/jalberto/qilla/internal/worker"
 )
 
-// cmdGather: qilla gather <routine> — run ONLY the gather step of a bundle and
-// print its JSON. The cheap way to develop a gather.sh or gather.star: no
-// model is called, nothing is recorded, no note is rendered.
+// cmdGather: qilla gather <routine> [--dry] — run ONLY the gather step of a
+// bundle and print its JSON. The cheap way to develop a gather.sh or
+// gather.star: no model is called, nothing is recorded, no note is rendered.
+// --dry (like QILLA_DRY_RUN=1) suppresses a gather.star's declared write and
+// non-GET http calls and reports them as "_dry_actions".
 func cmdGather(args []string) error {
+	dry := false
+	var rest []string
+	for _, a := range args {
+		if a == "--dry" || a == "-dry" {
+			dry = true
+			continue
+		}
+		rest = append(rest, a)
+	}
+	args = rest
 	if len(args) != 1 {
-		return fmt.Errorf("usage: qilla gather <routine>")
+		return fmt.Errorf("usage: qilla gather <routine> [--dry]")
 	}
 	cfg, err := config.Load(config.DefaultPath())
 	if err != nil {
@@ -29,7 +41,7 @@ func cmdGather(args []string) error {
 	if err != nil {
 		return err
 	}
-	out, ok, err := w.Gather(context.Background(), args[0])
+	out, ok, err := w.GatherDry(context.Background(), args[0], dry)
 	if err != nil {
 		return err
 	}

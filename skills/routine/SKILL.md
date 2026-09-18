@@ -45,9 +45,9 @@ A routine is an **isolated bundle**: one directory, `Qilla/Routines/<name>/`, ho
 ### `gather.star` — the built-in Starlark gather (the default)
 Python-shaped, hermetic, JSON-native, **nothing to install**: qilla runs it in-process. Define `def gather(ctx):` returning a dict (or set a top-level `result`); qilla JSON-encodes it exactly like gather.sh stdout, so digests keep working. A non-dict result is an error.
 
-`ctx` carries `.routine`, `.date`, `.vault`, `.env` (the QILLA_* vars) and `.secrets_dir` (`""` when none).
+`ctx` carries `.routine`, `.date`, `.vault`, `.env` (the QILLA_* vars), `.secrets_dir` (`""` when none), `.dry_run` and `.actions`.
 
-The helper set is **frozen** — no imports, no `open` for writing, no network. The posture is **read + run only**: a gather *reads* files and *runs* commands; anything it needs to persist goes through `run(["qilla", …])`.
+The helper set is **frozen** — no imports, no `open` for writing, no network. The posture is **read + run only**: a gather *reads* files and *runs* commands; anything it needs to persist goes through `run(["qilla", …])`. **Declare or stay pure**: the only way out is `[capabilities]` in `routine.toml` (below), and each declaration injects exactly its helper — nothing else changes.
 
 | Helper | Does |
 |---|---|
@@ -69,6 +69,28 @@ The helper set is **frozen** — no imports, no `open` for writing, no network. 
 | `fail(msg)` · `print(…)` | abort the gather · goes to the run's stderr, kept with the error |
 
 Regexps are **RE2** (Go): no backreferences, no lookaround. Patterns are compiled once and cached.
+
+#### `[capabilities]` — declared side effects
+
+A bundle that must reach the network or write a file declares it in its `routine.toml`; qilla injects only the declared helper, already scoped. No `[capabilities]` ⇒ exactly the frozen set above, and `http`/`write`/`secret` do not exist (NameError).
+
+```toml
+[capabilities]
+http  = { hosts = ["nasdxp:3000", "api.notion.com"], methods = ["GET", "POST"] }
+write = { paths = ["Library/Newsletters/", ".obsidian/snippets/today.css"] }
+exec  = ["msgvault", "qilla"]
+```
+
+| Declared | Helper | Rules |
+|---|---|---|
+| `http` | `http(method, url, headers={}, json=None, body=None, timeout=30)` → `{"status", "headers", "body", "json"}` | host is matched as `host[:port]` exactly as declared; `methods` defaults to `["GET"]`; an undeclared host or method is an error naming the manifest key; redirects off the allowlist are refused; `headers` come back lowercased; `json` is parsed only for a JSON content-type, else `None`; `json=` sets `Content-Type: application/json` |
+| `http` | `secret(name)` → `str` | reads `<secrets_dir>/<name>`, trimmed; list the name in `requires.secrets` (or an `[[optional]]`) so it is mounted |
+| `write` | `write(path, text)` → `bool` | vault-relative, no `..`, must sit under a declared prefix (trailing `/` = directory, else an exact file); atomic (temp + rename); `True` when the content changed, `False` when it was already identical (no write, mtime untouched). Rollback is git + the post-run commit — nothing is kept on disk |
+| `exec` | restricts `run()` | `basename(argv[0])` must be listed; nothing declared ⇒ `run()` is unrestricted |
+
+`qilla routine check <name>` prints one `cap` row per declaration with its scope, and `qilla routine check --json` carries `capabilities` per routine — that output is the audit of what a bundle may do.
+
+**Dry run**: `qilla gather <routine> --dry` (or `QILLA_DRY_RUN=1`) sets the `dry_run` global and `ctx.dry_run`. `write` and non-GET `http` then do nothing, append `{"kind", "target"}` to `ctx.actions` and come back `False` / `{"status": 0, …, "dry": True}`; the worker adds `"_dry_actions"` to the gather JSON. GET still runs, and a non-dry run never gains the key, so digests are unchanged.
 
 ```python
 def gather(ctx):

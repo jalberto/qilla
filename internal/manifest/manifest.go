@@ -59,6 +59,42 @@ type Signal struct {
 	Hint   string   `toml:"hint"`
 }
 
+// HTTPCap scopes the `http` helper: which hosts (host[:port], exactly as the
+// URL spells them) and which methods a gather.star may call.
+type HTTPCap struct {
+	Hosts   []string `toml:"hosts" json:"hosts,omitempty"`
+	Methods []string `toml:"methods" json:"methods,omitempty"` // empty → ["GET"]
+}
+
+// WriteCap scopes the `write` helper: vault-relative prefixes. A prefix ending
+// in "/" is a directory, anything else is an exact file.
+type WriteCap struct {
+	Paths []string `toml:"paths" json:"paths,omitempty"`
+}
+
+// Capabilities are the side effects a bundle declares under [capabilities].
+// Nothing declared ⇒ the gather runtime stays at its frozen, pure set.
+type Capabilities struct {
+	HTTP  *HTTPCap  `toml:"http" json:"http,omitempty"`
+	Write *WriteCap `toml:"write" json:"write,omitempty"`
+	Exec  []string  `toml:"exec" json:"exec,omitempty"` // when non-empty, restricts run() argv[0]
+}
+
+// MethodList returns the declared methods, uppercased, defaulting to GET.
+func (c *HTTPCap) MethodList() []string {
+	if c == nil || len(c.Methods) == 0 {
+		return []string{"GET"}
+	}
+	out := make([]string, 0, len(c.Methods))
+	for _, m := range c.Methods {
+		out = append(out, strings.ToUpper(strings.TrimSpace(m)))
+	}
+	return out
+}
+
+// KnownMethods are the HTTP verbs a bundle may declare.
+var KnownMethods = map[string]bool{"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true}
+
 // Manifest is routine.toml.
 type Manifest struct {
 	Name      string     `toml:"name"`
@@ -67,6 +103,9 @@ type Manifest struct {
 	Optional  []Optional `toml:"optional"`
 	UserFiles []UserFile `toml:"user_files"`
 	Signals   []Signal   `toml:"signals"`
+
+	// Capabilities is [capabilities]: the side effects gather.star is allowed.
+	Capabilities *Capabilities `toml:"capabilities"`
 
 	Dir string `toml:"-"` // bundle directory, set by Load
 }
@@ -194,6 +233,67 @@ func (m *Manifest) Check(env Env, settings map[string]any) []Result {
 
 	for _, s := range m.Signals {
 		add(signalResult(env, s, settings))
+	}
+
+	for _, r := range capResults(m.Capabilities) {
+		add(r)
+	}
+	return out
+}
+
+// capResults renders one row per declared capability, and a failing row when a
+// declaration is malformed (the bundle must not run with a broken scope).
+func capResults(c *Capabilities) []Result {
+	if c == nil {
+		return nil
+	}
+	var out []Result
+	fail := func(item, hint string) {
+		out = append(out, Result{Item: item, Status: StatusFailed, OK: false, Hard: true, Hint: hint})
+	}
+	if h := c.HTTP; h != nil {
+		methods := h.MethodList()
+		item := fmt.Sprintf("cap http  hosts=%s methods=%s", strings.Join(h.Hosts, ","), strings.Join(methods, ","))
+		switch {
+		case len(h.Hosts) == 0:
+			fail("cap http", "capabilities.http.hosts is empty — list the hosts the gather may reach")
+		default:
+			bad := ""
+			for _, mm := range methods {
+				if !KnownMethods[mm] {
+					bad = mm
+					break
+				}
+			}
+			if bad != "" {
+				fail(item, fmt.Sprintf("method %q is not one of GET, POST, PUT, PATCH, DELETE", bad))
+			} else {
+				out = append(out, Result{Item: item, Status: StatusOK, OK: true})
+			}
+		}
+	}
+	if w := c.Write; w != nil {
+		item := "cap write paths=" + strings.Join(w.Paths, ",")
+		switch {
+		case len(w.Paths) == 0:
+			fail("cap write", "capabilities.write.paths is empty — list the vault-relative prefixes")
+		default:
+			bad := ""
+			for _, p := range w.Paths {
+				if filepath.IsAbs(p) || strings.Contains(p, "..") {
+					bad = p
+					break
+				}
+			}
+			if bad != "" {
+				fail(item, fmt.Sprintf("path %q must be vault-relative and free of ..", bad))
+			} else {
+				out = append(out, Result{Item: item, Status: StatusOK, OK: true})
+			}
+		}
+	}
+	if len(c.Exec) > 0 {
+		out = append(out, Result{Item: "cap exec " + strings.Join(c.Exec, ","), Status: StatusOK, OK: true})
 	}
 	return out
 }

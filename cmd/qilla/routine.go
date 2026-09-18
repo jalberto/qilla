@@ -33,14 +33,21 @@ func manifestEnv(cfg *config.Config) manifest.Env {
 // checkRoutine evaluates one routine's manifest. ok=false means the bundle has
 // no manifest (legacy): nothing to check, and that is not a failure.
 func checkRoutine(cfg *config.Config, name string, env manifest.Env) (rs []manifest.Result, hasManifest bool, err error) {
+	rs, _, hasManifest, err = checkRoutineCaps(cfg, name, env)
+	return rs, hasManifest, err
+}
+
+// checkRoutineCaps is checkRoutine plus the bundle's declared capabilities,
+// which the machine-readable report lists per routine.
+func checkRoutineCaps(cfg *config.Config, name string, env manifest.Env) ([]manifest.Result, *manifest.Capabilities, bool, error) {
 	m, err := routineManifest(cfg, name)
 	if err != nil || m == nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 	if m.Name == "" {
 		m.Name = name
 	}
-	return m.Check(env, cfg.Routines[name].Settings), true, nil
+	return m.Check(env, cfg.Routines[name].Settings), m.Capabilities, true, nil
 }
 
 // cmdRoutine: qilla routine check <name> | qilla routine check --all [--json]
@@ -80,21 +87,22 @@ func cmdRoutine(args []string) error {
 	env := manifestEnv(cfg)
 
 	type report struct {
-		Routine  string            `json:"routine"`
-		Manifest bool              `json:"manifest"`
-		OK       bool              `json:"ok"`
-		Results  []manifest.Result `json:"results"`
+		Routine      string                 `json:"routine"`
+		Manifest     bool                   `json:"manifest"`
+		OK           bool                   `json:"ok"`
+		Capabilities *manifest.Capabilities `json:"capabilities,omitempty"`
+		Results      []manifest.Result      `json:"results"`
 	}
 	var reports []report
 	bad := false
 	for _, n := range names {
-		rs, has, err := checkRoutine(cfg, n, env)
+		rs, caps, has, err := checkRoutineCaps(cfg, n, env)
 		if err != nil {
 			return err
 		}
 		failed := has && manifest.Failed(rs)
 		bad = bad || failed
-		reports = append(reports, report{Routine: n, Manifest: has, OK: !failed, Results: rs})
+		reports = append(reports, report{Routine: n, Manifest: has, OK: !failed, Capabilities: caps, Results: rs})
 	}
 	if *asJSON {
 		b, err := json.MarshalIndent(reports, "", "  ")

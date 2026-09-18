@@ -22,12 +22,30 @@
 //	         opened mode=ro and only one SELECT / WITH / PRAGMA table_info runs.
 //	         Prefer a tool's CLI over its database when it has one.
 //	ctx:     .routine .date .vault .env (dict of QILLA_*) .secrets_dir
+//	         .dry_run .actions (what a dry run suppressed)
+//	globals: dry_run (bool)
 //
-// Hermetic by construction: there is no `open` for writing and no network.
+// Hermetic by default: there is no `open` for writing and no network.
 // The posture stays READ + RUN only — even sqlite is read-only.
-// A gather only READS files and RUNS commands (cwd = the vault, no shell).
 // State a gather needs to keep goes through run(["qilla", ...]) or a command
 // that writes it — never through the Starlark script itself.
+//
+// DECLARE OR STAY PURE — side effects come only from [capabilities] in the
+// bundle's routine.toml, and each declaration injects exactly its helper:
+//
+//	http  = { hosts = [...], methods = [...] }  → http(method, url, headers={},
+//	         json=None, body=None, timeout=30) -> {status, headers, body, json}
+//	         and secret(name) -> str (reads <secrets_dir>/<name>).
+//	         Undeclared host or method is an error; redirects off the
+//	         allowlist are refused; methods default to ["GET"].
+//	write = { paths = [...] }                   → write(path, text) -> bool
+//	         vault-relative, inside a declared prefix, atomic (temp + rename),
+//	         False when the content is already identical.
+//	exec  = ["msgvault", ...]                   → restricts run() argv[0].
+//
+// Under a dry run (`qilla gather <routine> --dry`, QILLA_DRY_RUN=1) write()
+// and non-GET http() do nothing, append {kind, target} to ctx.actions and the
+// worker adds "_dry_actions" to the gather JSON.
 package star
 
 import (
@@ -44,6 +62,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jalberto/qilla/internal/manifest"
 	"go.starlark.net/lib/json"
 	starlarkmath "go.starlark.net/lib/math"
 	starlarktime "go.starlark.net/lib/time"
@@ -81,15 +100,28 @@ type Env struct {
 	// `mem` module. nil = the module's calls fail with a clear message.
 	MemSearch func(query string, n int) ([]MemEntry, error)
 	MemState  func(routine string) ([]MemEntry, error)
+	// Caps is [capabilities] from the bundle's routine.toml: nil (or a nil
+	// member) means the matching helper is not injected at all.
+	Caps *manifest.Capabilities
+	// DryRun suppresses mutations: write() and non-GET http() record a
+	// {kind, target} action instead of acting.
+	DryRun bool
 }
 
 // Run executes path and returns the gather result as plain Go values
 // (map[string]any). Anything the script printed is returned in prints, to be
 // kept with the error like gather.sh stderr.
 func Run(ctx context.Context, path string, e Env) (result any, prints string, err error) {
+	result, _, prints, err = RunActions(ctx, path, e)
+	return result, prints, err
+}
+
+// RunActions is Run plus the side effects a dry run suppressed, in order.
+// Outside a dry run it is always empty.
+func RunActions(ctx context.Context, path string, e Env) (result any, actions []map[string]any, prints string, err error) {
 	src, err := os.ReadFile(path)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	to := e.Timeout
 	if to <= 0 {
@@ -116,27 +148,27 @@ func Run(ctx context.Context, path string, e Env) (result any, prints string, er
 
 	globals, err := starlark.ExecFileOptions(fileOpts, thread, path, src, r.predeclared())
 	if err != nil {
-		return nil, out.String(), starErr(err)
+		return nil, r.takeActions(), out.String(), starErr(err)
 	}
 	var val starlark.Value
 	if fn, ok := globals["gather"].(starlark.Callable); ok {
 		val, err = starlark.Call(thread, fn, starlark.Tuple{r.ctxValue()}, nil)
 		if err != nil {
-			return nil, out.String(), starErr(err)
+			return nil, r.takeActions(), out.String(), starErr(err)
 		}
 	} else if v, ok := globals["result"]; ok {
 		val = v
 	} else {
-		return nil, out.String(), fmt.Errorf("gather.star must define gather(ctx) or a top-level result")
+		return nil, r.takeActions(), out.String(), fmt.Errorf("gather.star must define gather(ctx) or a top-level result")
 	}
 	if _, ok := val.(*starlark.Dict); !ok {
-		return nil, out.String(), fmt.Errorf("gather() must return a dict")
+		return nil, r.takeActions(), out.String(), fmt.Errorf("gather() must return a dict")
 	}
 	g, err := toGo(val)
 	if err != nil {
-		return nil, out.String(), err
+		return nil, r.takeActions(), out.String(), err
 	}
-	return g, out.String(), nil
+	return g, r.takeActions(), out.String(), nil
 }
 
 func starErr(err error) error {
@@ -150,8 +182,17 @@ type runner struct {
 	env Env
 	ctx context.Context
 
-	mu  sync.Mutex
-	res map[string]*regexp.Regexp
+	mu         sync.Mutex
+	res        map[string]*regexp.Regexp
+	actions    []map[string]any // side effects a dry run suppressed
+	actionsVal *starlark.List   // the same list as ctx.actions
+}
+
+// takeActions returns the recorded dry-run actions.
+func (r *runner) takeActions() []map[string]any {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.actions
 }
 
 func (r *runner) ctxValue() starlark.Value {
@@ -167,6 +208,8 @@ func (r *runner) ctxValue() starlark.Value {
 		"env":         vars,
 		"secrets_dir": starlark.String(r.env.SecretsDir),
 		"settings":    r.settingsValue(),
+		"dry_run":     starlark.Bool(r.env.DryRun),
+		"actions":     r.actionList(),
 	})
 }
 
@@ -183,7 +226,23 @@ func (r *runner) settingsValue() starlark.Value {
 }
 
 func (r *runner) predeclared() starlark.StringDict {
+	d := r.frozenPredeclared()
+	// capabilities: a helper exists only because routine.toml declares it
+	if c := r.env.Caps; c != nil {
+		if c.HTTP != nil {
+			d["http"] = starlark.NewBuiltin("http", r.bHTTP)
+			d["secret"] = starlark.NewBuiltin("secret", r.bSecret)
+		}
+		if c.Write != nil {
+			d["write"] = starlark.NewBuiltin("write", r.bWrite)
+		}
+	}
+	return d
+}
+
+func (r *runner) frozenPredeclared() starlark.StringDict {
 	return starlark.StringDict{
+		"dry_run":  starlark.Bool(r.env.DryRun),
 		"json":     json.Module,
 		"time":     starlarktime.Module,
 		"math":     starlarkmath.Module,
@@ -322,6 +381,19 @@ func (r *runner) bRun(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tup
 	}
 	if len(argv) == 0 {
 		return nil, fmt.Errorf("run: empty cmd")
+	}
+	if c := r.env.Caps; c != nil && len(c.Exec) > 0 {
+		base := filepath.Base(argv[0])
+		ok := false
+		for _, allowed := range c.Exec {
+			if allowed == base {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return nil, fmt.Errorf("capability exec: %s not declared", base)
+		}
 	}
 	secs, ok := starlark.AsFloat(timeout)
 	if !ok {
