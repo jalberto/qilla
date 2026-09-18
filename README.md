@@ -215,9 +215,20 @@ hint   = "No mail labelled Newsletter in the last 30 days: create the Gmail filt
 
 `run` may contain `{{settings.key}}` placeholders and is capped at 20 s. Settings reach the gather as `settings["accounts"]` in `gather.star` (also `ctx.settings`) and as `$QILLA_SETTINGS` (a JSON object) in `gather.sh`, and templates see them as `settings`.
 
+A gather is pure by default — read and run only. **Declare or stay pure**: side effects come from `[capabilities]`, and each declaration injects exactly its helper into `gather.star`:
+
+```toml
+[capabilities]
+http  = { hosts = ["nasdxp:3000", "api.notion.com"], methods = ["GET", "POST"] }
+write = { paths = ["Library/Newsletters/"] }
+exec  = ["msgvault", "qilla"]   # optional: restricts run() argv[0]
+```
+
+`http` adds `http(method, url, headers={}, json=None, body=None, timeout=30)` — an undeclared host or method is an error, redirects off the allowlist are refused, `methods` defaults to `["GET"]` — plus `secret(name)`. It returns `{status, headers, body, json, error}`; a transport failure (refused, DNS, timeout, TLS, a refused redirect) does not raise, since Starlark has no `try/except`: it comes back as `status: 0` with a short `error` string (`None` on success) so a gather can degrade it into a row. `write` adds `write(path, text)`: vault-relative, inside a declared prefix, atomic, `False` when the content is already identical. Without `[capabilities]` those globals do not exist. `qilla gather <routine> --dry` (or `QILLA_DRY_RUN=1`) turns `write` and non-GET `http` into a `"_dry_actions"` list in the gather JSON; GET still runs.
+
 ```sh
-qilla routine check newsletters      # requirement · status · hint; exit 1 on a hard failure
-qilla routine check --all [--json]
+qilla routine check newsletters      # requirement · status · hint, one `cap` row per capability; exit 1 on a hard failure
+qilla routine check --all [--json]   # --json carries `capabilities` per routine
 ```
 
 `qilla init` warns for every configured routine and writes no timer for one that fails a hard check (`--force` writes it anyway); `qilla run` refuses the same routine unless `--force`; `qilla doctor` shows one soft row per failing routine. A bundle without `routine.toml` is a legacy bundle, not an error — the check reports `no manifest`.
@@ -233,7 +244,7 @@ A routine is an isolated bundle: its own gather, template and prompt, no helper 
 | `qilla version` · `qilla help` | version · usage |
 | `qilla new routine <name> …` | scaffold a routine bundle (incl. `routine.toml`) and its config block |
 | `qilla routine check <name>` · `--all` · `--json` | a bundle's requirements, optional features and signals; exit 1 on a hard failure |
-| `qilla gather <routine>` | run only the gather step and print its JSON — no model, $0 |
+| `qilla gather <routine> [--dry]` | run only the gather step and print its JSON — no model, $0 (`--dry`: declared write/non-GET http become `_dry_actions`) |
 | `qilla run [--force] <routine>` | one routine now, bypassing the queue (`--force` runs one that fails its check) |
 | `qilla enqueue <routine>` · `qilla enqueue ask --text "…"` | what timers and the page do |
 | `qilla ask "<text>"` | headless one-off through the queue; waits and prints |

@@ -24,6 +24,7 @@ import (
 	"github.com/jalberto/qilla/internal/config"
 	"github.com/jalberto/qilla/internal/install"
 	"github.com/jalberto/qilla/internal/loader"
+	"github.com/jalberto/qilla/internal/manifest"
 	"github.com/jalberto/qilla/internal/mem"
 	"github.com/jalberto/qilla/internal/queue"
 	"github.com/jalberto/qilla/internal/session"
@@ -144,7 +145,7 @@ func (w *Worker) run(ctx context.Context, j *queue.Job, rec *Record) error {
 		gathered, err = w.inputPending(j.Routine)
 		hasGather = err == nil
 	default:
-		gathered, hasGather, err = w.gather(ctx, dir, j.Routine)
+		gathered, hasGather, err = w.gather(ctx, dir, j.Routine, false)
 	}
 	if err != nil {
 		return err
@@ -398,17 +399,24 @@ func (w *Worker) gatherEnv(dir, name string) (map[string]string, func()) {
 // exists (false = the routine has no gather) and any failure. It is exported
 // for `qilla gather <routine>`, the cheap way to test a bundle.
 func (w *Worker) Gather(ctx context.Context, name string) (string, bool, error) {
-	return w.gather(ctx, filepath.Join(w.Cfg.Vault, RoutinesDir, name), name)
+	return w.GatherDry(ctx, name, false)
+}
+
+// GatherDry is Gather with the dry-run switch of `qilla gather <name> --dry`:
+// a gather.star's declared write/http mutations are recorded as
+// "_dry_actions" in the JSON instead of being performed.
+func (w *Worker) GatherDry(ctx context.Context, name string, dry bool) (string, bool, error) {
+	return w.gather(ctx, filepath.Join(w.Cfg.Vault, RoutinesDir, name), name, dry)
 }
 
 // gather runs the routine's gather step in the vault: <dir>/gather.sh (any
 // language, its stdout is the JSON) or, when there is no gather.sh,
 // <dir>/gather.star (built-in Starlark, its dict JSON-encoded here). Neither
 // present → ("", false, nil).
-func (w *Worker) gather(ctx context.Context, dir, name string) (string, bool, error) {
+func (w *Worker) gather(ctx context.Context, dir, name string, dry bool) (string, bool, error) {
 	script := filepath.Join(dir, "gather.sh")
 	if _, err := os.Stat(script); errors.Is(err, os.ErrNotExist) {
-		return w.gatherStar(ctx, dir, name)
+		return w.gatherStar(ctx, dir, name, dry)
 	}
 	ctx, cancel := context.WithTimeout(ctx, gatherTimeout)
 	defer cancel()
@@ -441,17 +449,28 @@ func starMem(es []mem.Entry) []star.MemEntry {
 // gatherStar runs <dir>/gather.star through the in-process Starlark runtime.
 // The dict it returns is JSON-encoded with encoding/json (map keys sorted), so
 // the digest is as stable as gather.sh's stdout.
-func (w *Worker) gatherStar(ctx context.Context, dir, name string) (string, bool, error) {
+func (w *Worker) gatherStar(ctx context.Context, dir, name string, dry bool) (string, bool, error) {
 	script := filepath.Join(dir, "gather.star")
 	if _, err := os.Stat(script); errors.Is(err, os.ErrNotExist) {
 		return "", false, nil
 	}
 	env, cleanup := w.gatherEnv(dir, name)
 	defer cleanup()
+	if env["QILLA_DRY_RUN"] == "1" || os.Getenv("QILLA_DRY_RUN") == "1" {
+		dry = true
+	}
 	senv := star.Env{
 		Routine: name, Date: env["QILLA_DATE"], Vault: w.Cfg.Vault,
 		SecretsDir: env["QILLA_SECRETS_DIR"], Vars: env, Timeout: gatherTimeout,
 		Settings: w.Cfg.Routines[name].Settings,
+		DryRun:   dry,
+	}
+	// [capabilities] from the bundle's routine.toml scopes the side effects
+	// the script may have; no manifest ⇒ the frozen, pure runtime.
+	if m, err := manifest.Load(dir); err != nil {
+		return "", true, fmt.Errorf("gather.star: %v", err)
+	} else if m != nil {
+		senv.Caps = m.Capabilities
 	}
 	if w.Mem != nil {
 		senv.MemSearch = func(q string, n int) ([]star.MemEntry, error) {
@@ -463,12 +482,19 @@ func (w *Worker) gatherStar(ctx context.Context, dir, name string) (string, bool
 			return starMem(es), err
 		}
 	}
-	res, prints, err := star.Run(ctx, script, senv)
+	res, actions, prints, err := star.RunActions(ctx, script, senv)
 	if err != nil {
 		if p := strings.TrimSpace(prints); p != "" {
 			return "", true, fmt.Errorf("gather.star: %v\n%s", err, p)
 		}
 		return "", true, fmt.Errorf("gather.star: %v", err)
+	}
+	// only a dry run that actually suppressed something adds a key: the
+	// digest of a normal run stays exactly what it was
+	if len(actions) > 0 {
+		if m, ok := res.(map[string]any); ok {
+			m["_dry_actions"] = actions
+		}
 	}
 	b, err := json.Marshal(res)
 	if err != nil {
