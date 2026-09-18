@@ -63,3 +63,33 @@ func TestNoOutputNoRender(t *testing.T) {
 		t.Fatal("routines without output render nothing, never touch knap")
 	}
 }
+
+func TestAppendSkipsBlankRender(t *testing.T) {
+	needKnap(t)
+	vault := t.TempDir()
+	dir := filepath.Join(vault, worker.RoutinesDir, "cal")
+	os.MkdirAll(dir, 0o755)
+	// nothing gathered → the template renders to whitespace only
+	os.WriteFile(filepath.Join(dir, "template.md"), []byte("{% for e in gathered.events %}- {{ e.title }}\n{% endfor %}  \n"), 0o644)
+	k := Knap{Vault: vault, Now: func() time.Time { return time.Date(2026, 9, 12, 8, 0, 0, 0, time.UTC) }}
+	r := config.Routine{Kind: "script", Output: "Desk/Journal/{{date}}.md", Append: true}
+	data := worker.Data{Routine: "cal", Date: "2026-09-12", Gathered: map[string]any{"events": []map[string]any{}}}
+	out := filepath.Join(vault, "Desk", "Journal", "2026-09-12.md")
+	os.MkdirAll(filepath.Dir(out), 0o755)
+	os.WriteFile(out, []byte("# Day\n"), 0o644)
+	if err := k.Render(context.Background(), "cal", r, data); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(out)
+	if string(b) != "# Day\n" {
+		t.Fatalf("blank render must not touch the note, got %q", b)
+	}
+	// and it must not create the note either
+	r.Output = "Desk/Journal/new.md"
+	if err := k.Render(context.Background(), "cal", r, data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(vault, "Desk", "Journal", "new.md")); err == nil {
+		t.Fatal("blank render must not create the note")
+	}
+}

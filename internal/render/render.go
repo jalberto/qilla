@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,6 +65,12 @@ func (k Knap) Render(ctx context.Context, name string, r config.Routine, data wo
 		return err
 	}
 	if r.Append {
+		// a template that rendered to nothing has nothing to say: appending
+		// would add a blank line to the note on every run.
+		if strings.TrimSpace(out.String()) == "" {
+			log.Printf("routine %s: nothing to append to %s", name, outRel)
+			return nil
+		}
 		f, err := os.OpenFile(outPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 		if err != nil {
 			return err

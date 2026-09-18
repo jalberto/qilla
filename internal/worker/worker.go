@@ -376,6 +376,24 @@ func (w *Worker) GatherEnv(name string) map[string]string {
 	return e
 }
 
+// gatherEnv is GatherEnv plus the secrets a gather is entitled to. Under
+// systemd the credentials directory is already mounted and is used as is;
+// otherwise (`qilla run` from a terminal) qilla mounts the secrets itself, so
+// both paths hand the gather the same QILLA_SECRETS_DIR contract. The returned
+// cleanup removes anything qilla mounted.
+func (w *Worker) gatherEnv(dir, name string) (map[string]string, func()) {
+	e := w.GatherEnv(name)
+	if e["QILLA_SECRETS_DIR"] != "" {
+		return e, func() {}
+	}
+	mnt, cleanup := w.mountSecrets(dir, name)
+	if mnt == "" {
+		return e, cleanup
+	}
+	e["QILLA_SECRETS_DIR"] = mnt
+	return e, cleanup
+}
+
 // Gather runs the routine's gather step and returns its JSON, whether it
 // exists (false = the routine has no gather) and any failure. It is exported
 // for `qilla gather <routine>`, the cheap way to test a bundle.
@@ -396,7 +414,8 @@ func (w *Worker) gather(ctx context.Context, dir, name string) (string, bool, er
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "sh", script)
 	cmd.Dir = w.Cfg.Vault
-	env := w.GatherEnv(name)
+	env, cleanup := w.gatherEnv(dir, name)
+	defer cleanup()
 	cmd.Env = claude.Scrub(os.Environ())
 	for _, k := range sortedEnvKeys(env) {
 		cmd.Env = append(cmd.Env, k+"="+env[k])
@@ -427,7 +446,8 @@ func (w *Worker) gatherStar(ctx context.Context, dir, name string) (string, bool
 	if _, err := os.Stat(script); errors.Is(err, os.ErrNotExist) {
 		return "", false, nil
 	}
-	env := w.GatherEnv(name)
+	env, cleanup := w.gatherEnv(dir, name)
+	defer cleanup()
 	senv := star.Env{
 		Routine: name, Date: env["QILLA_DATE"], Vault: w.Cfg.Vault,
 		SecretsDir: env["QILLA_SECRETS_DIR"], Vars: env, Timeout: gatherTimeout,
@@ -625,7 +645,7 @@ func (w *Worker) settingsFile(name string, r config.Routine) (string, error) {
 	domains := append(append([]string{}, w.Cfg.Sandbox.AllowedDomains...), r.AllowedDomains...)
 	sort.Strings(domains)
 	// secrets are for gather.sh: deny the credentials dir and the encrypted store to sandboxed Bash
-	deny := []string{filepath.Join(filepath.Dir(w.Cfg.Path), "creds")}
+	deny := []string{filepath.Join(filepath.Dir(w.Cfg.Path), "creds"), w.secretsRoot()}
 	if cd := os.Getenv("CREDENTIALS_DIRECTORY"); cd != "" {
 		deny = append(deny, cd)
 	}
