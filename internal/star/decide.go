@@ -42,7 +42,7 @@ func (r *runner) bDecide(_ *starlark.Thread, b *starlark.Builtin, args starlark.
 			return nil, fmt.Errorf("decide: rows must be a list of dicts, got %s", v.Type())
 		}
 		records = append(records, decide.Record{
-			ID:       dictStr(d, "id"),
+			ID:       dictID(d, "id"),
 			Subject:  dictStr(d, "subject"),
 			From:     dictStr(d, "from"),
 			FromName: dictStr(d, "from_name"),
@@ -56,7 +56,11 @@ func (r *runner) bDecide(_ *starlark.Thread, b *starlark.Builtin, args starlark.
 	out := starlark.NewList(nil)
 	for _, res := range set.Classify(records) {
 		e := starlark.NewDict(6)
-		e.SetKey(starlark.String("id"), starlark.String(res.ID))
+		idv, err := toStar(res.ID.Value())
+		if err != nil {
+			idv = starlark.String(res.ID.String())
+		}
+		e.SetKey(starlark.String("id"), idv)
 		e.SetKey(starlark.String("task"), starlark.String(res.Task))
 		e.SetKey(starlark.String("label"), starlark.String(res.Label))
 		e.SetKey(starlark.String("p"), starlark.Float(res.P))
@@ -87,6 +91,22 @@ func strSlice(what string, v starlark.Value) ([]string, error) {
 		out = append(out, s)
 	}
 	return out, nil
+}
+
+// dictID reads the row id, which may be an int (msgvault) or a string. It is
+// carried through unchanged so the caller can match it against its own rows.
+func dictID(d *starlark.Dict, key string) decide.ID {
+	v, found, err := d.Get(starlark.String(key))
+	if err != nil || !found {
+		return decide.StringID("")
+	}
+	if i, ok := v.(starlark.Int); ok {
+		if n, ok := i.Int64(); ok {
+			return decide.IntID(n)
+		}
+	}
+	s, _ := starlark.AsString(v)
+	return decide.StringID(s)
 }
 
 // dictStr reads a string key, tolerating a missing key or a non-string value.

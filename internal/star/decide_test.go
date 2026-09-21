@@ -38,9 +38,12 @@ func TestDecideBuiltin(t *testing.T) {
 	f.Close()
 	script := write(t, vault, "g.star", `
 def gather(ctx):
-    rows = [{"id": "a", "subject": "Spam spam", "from": "x@y.z", "body": "spam"},
+    rows = [{"id": 184223, "subject": "Spam spam", "from": "x@y.z", "body": "spam"},
             {"id": "b", "subject": "hello", "from": "x@y.z", "body": "nothing here"}]
-    return {"out": decide(["tiny", "absent"], rows)}
+    first = decide(["tiny", "absent"], rows)
+    # called twice on purpose: the second call must reuse the loaded model
+    second = decide(["tiny"], rows)
+    return {"out": first, "again": second}
 `)
 	e := env(vault)
 	e.DecidersDir = state
@@ -50,7 +53,8 @@ def gather(ctx):
 	}
 	raw, _ := json.Marshal(res)
 	var got struct {
-		Out []map[string]any `json:"out"`
+		Out   []map[string]any `json:"out"`
+		Again []map[string]any `json:"again"`
 	}
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
@@ -59,8 +63,15 @@ def gather(ctx):
 	if len(got.Out) != 2 {
 		t.Fatalf("got %d results, want 2: %s", len(got.Out), raw)
 	}
-	if got.Out[0]["id"] != "a" || got.Out[0]["task"] != "tiny" {
-		t.Errorf("unexpected first result: %v", got.Out[0])
+	// msgvault ids are integers: the id comes back a number, not "184223".
+	if got.Out[0]["id"] != float64(184223) || got.Out[0]["task"] != "tiny" {
+		t.Errorf("unexpected first result: %#v", got.Out[0])
+	}
+	if got.Out[1]["id"] != "b" {
+		t.Errorf("a string id must stay a string: %#v", got.Out[1])
+	}
+	if len(got.Again) != 2 {
+		t.Errorf("second decide() call returned %d results", len(got.Again))
 	}
 	if got.Out[0]["label"] != "yes" {
 		t.Errorf("row a should be yes, got %v", got.Out[0])

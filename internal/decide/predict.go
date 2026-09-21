@@ -13,7 +13,7 @@ const textLimit = 2000
 // Record is one row to classify, the shape `qilla decide predict` reads from
 // stdin and a gather passes to the decide() builtin.
 type Record struct {
-	ID       string `json:"id"`
+	ID       ID     `json:"id"`
 	Subject  string `json:"subject"`
 	From     string `json:"from"`
 	FromName string `json:"from_name"`
@@ -47,7 +47,7 @@ func nonEmpty(ss ...string) []string {
 // Result is one (row, task) answer, the JSONL line the CLI prints and the
 // dict the Starlark builtin returns.
 type Result struct {
-	ID      string  `json:"id"`
+	ID      ID      `json:"id"`
 	Task    string  `json:"task"`
 	Label   string  `json:"label"`
 	P       float64 `json:"p"`
@@ -59,6 +59,28 @@ type Result struct {
 type Set struct {
 	Tasks  []string
 	Models map[string]*Model
+}
+
+// cache keeps the parsed models for the life of the process: loading is the
+// whole cost (0.8 s for the three brief tasks), so a gather that calls
+// decide() twice must pay it once. Keyed by path + mtime + size, so a
+// retrain that rewrites a model is picked up without a restart.
+var cache sync.Map // string -> *Model
+
+func loadCached(path string) (*Model, error) {
+	key := path
+	if fi, err := os.Stat(path); err == nil {
+		key = fmt.Sprintf("%s|%d|%d", path, fi.ModTime().UnixNano(), fi.Size())
+	}
+	if m, ok := cache.Load(key); ok {
+		return m.(*Model), nil
+	}
+	m, err := LoadModel(path)
+	if err != nil {
+		return nil, err
+	}
+	cache.Store(key, m)
+	return m, nil
 }
 
 // LoadSet loads every task that has an exported model under dir. A task
@@ -75,7 +97,7 @@ func LoadSet(dir string, tasks []string, w *os.File) (*Set, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			loaded[i], errs[i] = LoadModel(ModelPath(dir, task))
+			loaded[i], errs[i] = loadCached(ModelPath(dir, task))
 		}()
 	}
 	wg.Wait()

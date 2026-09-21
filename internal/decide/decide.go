@@ -75,9 +75,15 @@ type Prediction struct {
 }
 
 // ModelPath is where a task's exported model lives under the deciders state
-// directory (<state_dir>/deciders).
+// directory (<state_dir>/deciders). The gzipped export is the normal case;
+// an uncompressed <task>.model.json beside it wins nothing but loads faster,
+// so it is accepted too — and preferred when both exist.
 func ModelPath(dir, task string) string {
-	return filepath.Join(dir, "models", task+".model.json.gz")
+	plain := filepath.Join(dir, "models", task+".model.json")
+	if _, err := os.Stat(plain); err == nil {
+		return plain
+	}
+	return plain + ".gz"
 }
 
 // LoadModel reads an exported model; the file may be gzipped (.gz) or plain.
