@@ -17,6 +17,9 @@
 //	         read(path) -> str        exists(path) -> bool
 //	         glob(pattern) -> [str]   listdir(path) -> [str]
 //	         mtime(path) -> float     env(name, default="") -> str
+//	         decide(tasks, rows) -> [{id, task, label, p, conf, unknown}] —
+//	         the trained TF-IDF deciders, in-process and read-only; a task
+//	         with no exported model is silently skipped.
 //	         now() -> float           fail(msg)             print -> stderr
 //	sqlite:  sqlite.query(path, sql, params=[]) -> [dict] — READ-ONLY: the db is
 //	         opened mode=ro and only one SELECT / WITH / PRAGMA table_info runs.
@@ -113,6 +116,9 @@ type Env struct {
 	// DryRun suppresses mutations: write() and non-GET http() record a
 	// {kind, target} action instead of acting.
 	DryRun bool
+	// DecidersDir is <state_dir>/deciders: where decide() reads the exported
+	// models. Empty = the builtin reports it is not configured.
+	DecidersDir string
 }
 
 // Run executes path and returns the gather result as plain Go values
@@ -264,6 +270,7 @@ func (r *runner) frozenPredeclared() starlark.StringDict {
 		"mtime":    starlark.NewBuiltin("mtime", r.bMtime),
 		"env":      starlark.NewBuiltin("env", r.bEnv),
 		"now":      starlark.NewBuiltin("now", r.bNow),
+		"decide":   starlark.NewBuiltin("decide", r.bDecide),
 		"settings": r.settingsValue(),
 	}
 }
