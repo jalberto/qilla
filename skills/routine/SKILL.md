@@ -65,6 +65,7 @@ The helper set is **frozen** — no imports, no `open` for writing, no network. 
 | `glob(pat)` · `listdir(path)` | sorted, vault-relative results |
 | `mtime(path)` · `now()` | unix seconds (float) |
 | `mem.search(query, n=5)` · `mem.state(routine="")` | read-only working memory. `mem.state()` is this routine's own last outcome (kind `state`, newest per key) — use it to skip what the routine already judged instead of re-diffing the vault |
+| `decide(tasks, rows)` | the trained TF-IDF deciders, in-process. `rows` = dicts `{id, subject, from, from_name, body}` (`id` may be an int or a string) → one dict `{id, task, label, p, conf, unknown}` per row per task. Read-only, no capability; a task with no exported model under `<state_dir>/deciders/models/` is skipped, never an error. **Never act on `unknown`** — it goes to the model |
 | `env(name, default="")` | a QILLA_* var or the process env |
 | `fail(msg)` · `print(…)` | abort the gather · goes to the run's stderr, kept with the error |
 

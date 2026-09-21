@@ -464,6 +464,8 @@ func (w *Worker) gatherStar(ctx context.Context, dir, name string, dry bool) (st
 		SecretsDir: env["QILLA_SECRETS_DIR"], Vars: env, Timeout: gatherTimeout,
 		Settings: w.Cfg.Routines[name].Settings,
 		DryRun:   dry,
+		// decide() needs no capability: it only reads the exported models.
+		DecidersDir: filepath.Join(w.Cfg.StateDir, "deciders"),
 	}
 	// [capabilities] from the bundle's routine.toml scopes the side effects
 	// the script may have; no manifest ⇒ the frozen, pure runtime.

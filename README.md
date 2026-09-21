@@ -253,6 +253,7 @@ A routine is an isolated bundle: its own gather, template and prompt, no helper 
 | `qilla reconcile` | prove today's `must_run` routines; purge expired memory |
 | `qilla status [--short\|--json]` | the day at a glance; exit 1 when something needs you |
 | `qilla runs last <routine>` · `qilla runs log [--routine r] [--days n]` | the watermark gathers diff against · recent runs with cost, duration and error head |
+| `qilla decide predict --task T [--task T2] [--state DIR]` · `qilla decide status` | the trained TF-IDF deciders, in Go: stdin JSONL `{id, subject, from, from_name, body}` → stdout JSONL `{id, task, label, p, conf, unknown}`; `status` lists the exported models. A task with no model is skipped with a stderr note, exit 0. Training stays in Python (`qilla-deciders`) |
 | `qilla cost [--all] [--by routine\|agent]` · `qilla prices sync` | money · refresh the price sheet |
 | `qilla mem add\|search\|seen\|forget\|recent\|conflicts\|judge\|promote\|purge\|stats` | working memory |
 | `qilla task new\|find\|done\|open\|aging\|summary` | one task, one block id, kept in sync across every note that copies it |
