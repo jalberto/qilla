@@ -4,9 +4,16 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/jalberto/qilla/internal/decide"
 )
 
 // A tiny two-class model written by hand: one word feature, one char feature,
@@ -86,5 +93,95 @@ func TestDecideNeedsDir(t *testing.T) {
 	script := write(t, vault, "g.star", "def gather(ctx):\n    return {\"o\": decide([\"t\"], [])}\n")
 	if _, _, err := Run(context.Background(), script, env(vault)); err == nil {
 		t.Fatal("want an error without a deciders directory")
+	}
+}
+
+// TestAskBuiltin: ask() round-trips through a fake Lemonade, and the script
+// sees the same dict the CLI prints — plus a trace line under DecidersDir.
+func TestAskBuiltin(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
+			"message": map[string]any{"content": "archive"},
+			"logprobs": map[string]any{"content": []any{map[string]any{
+				"token": "arch", "logprob": math.Log(0.96),
+				"top_logprobs": []any{
+					map[string]any{"token": "arch", "logprob": math.Log(0.96)},
+					map[string]any{"token": "resp", "logprob": math.Log(0.03)},
+					map[string]any{"token": "un", "logprob": math.Log(0.01)},
+				},
+			}}},
+		}}})
+	}))
+	defer srv.Close()
+
+	vault := t.TempDir()
+	state := t.TempDir()
+	script := write(t, vault, "g.star", `
+def gather(ctx):
+    return {"out": ask("choice", "a newsletter about GPUs",
+                       options=["respond", "archive"],
+                       question="what should the owner do?",
+                       caller="unit")}
+`)
+	e := env(vault)
+	e.DecidersDir = state
+	e.AskConfig = func(req *decide.AskRequest) { req.URL = srv.URL; req.Model = "fake-decider" }
+	res, _, err := Run(context.Background(), script, e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(res)
+	var got struct {
+		Out map[string]any `json:"out"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Out["label"] != "archive" || got.Out["kind"] != "choice" {
+		t.Fatalf("ask() = %v", got.Out)
+	}
+	if got.Out["model"] != "fake-decider" || got.Out["route"] != "local" {
+		t.Fatalf("ask() = %v", got.Out)
+	}
+	if c, _ := got.Out["conf"].(float64); math.Abs(c-0.96) > 1e-3 {
+		t.Fatalf("conf = %v, want 0.96", got.Out["conf"])
+	}
+	dist, ok := got.Out["dist"].(map[string]any)
+	if !ok || len(dist) != 3 {
+		t.Fatalf("dist = %v", got.Out["dist"])
+	}
+	line, err := os.ReadFile(filepath.Join(state, decide.TraceFile))
+	if err != nil {
+		t.Fatalf("ask() must trace: %v", err)
+	}
+	if strings.Contains(string(line), "newsletter about GPUs") {
+		t.Fatalf("the trace must not carry the text: %s", line)
+	}
+	if !strings.Contains(string(line), `"caller":"unit"`) {
+		t.Fatalf("trace caller: %s", line)
+	}
+}
+
+// An unreachable backend is an unknown answer, never a script error.
+func TestAskBuiltinBackendDown(t *testing.T) {
+	vault := t.TempDir()
+	script := write(t, vault, "g.star", `
+def gather(ctx):
+    return {"out": ask("noul", "is this a newsletter?")}
+`)
+	e := env(vault)
+	e.DecidersDir = t.TempDir()
+	e.AskConfig = func(req *decide.AskRequest) { req.URL = "http://127.0.0.1:1"; req.Timeout = time.Second }
+	res, _, err := Run(context.Background(), script, e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(res)
+	var got struct {
+		Out map[string]any `json:"out"`
+	}
+	json.Unmarshal(raw, &got)
+	if got.Out["label"] != "unknown" || got.Out["error"] != "lemonade unreachable" {
+		t.Fatalf("ask() = %v, want unknown / lemonade unreachable", got.Out)
 	}
 }

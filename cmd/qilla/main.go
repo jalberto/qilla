@@ -187,6 +187,9 @@ func main() {
 	case "decide":
 		if err := cmdDecide(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "qilla:", err)
+			if errors.Is(err, errUsage) {
+				os.Exit(2) // bad arguments; a backend failure exits 0
+			}
 			os.Exit(1)
 		}
 	case "enqueue":
