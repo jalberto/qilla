@@ -68,7 +68,7 @@ func TestUnionLinksSkillsAndMergesHooks(t *testing.T) {
 	}
 
 	h := readHooks(t, pd)
-	if len(h.Hooks["SessionStart"]) != 2 || len(h.Hooks["Stop"]) != 2 || len(h.Hooks["PreToolUse"]) != 2 {
+	if len(h.Hooks["SessionStart"]) != 2 || len(h.Hooks["Stop"]) != 2 || len(h.Hooks["PreToolUse"]) != 3 {
 		t.Fatalf("qilla's own hooks plus the vault's expected: %+v", h.Hooks)
 	}
 	body, _ := json.Marshal(h.Hooks)

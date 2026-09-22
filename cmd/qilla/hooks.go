@@ -29,9 +29,10 @@ import (
 type hookInput struct {
 	Cwd       string `json:"cwd"`
 	ToolInput struct {
-		Command  string `json:"command"`
-		FilePath string `json:"file_path"`
-		Limit    any    `json:"limit"`
+		Command      string `json:"command"`
+		FilePath     string `json:"file_path"`
+		NotebookPath string `json:"notebook_path"`
+		Limit        any    `json:"limit"`
 	} `json:"tool_input"`
 	StopHookActive bool   `json:"stop_hook_active"`
 	SessionID      string `json:"session_id"`
@@ -87,6 +88,19 @@ func cmdGuard(args []string) error {
 				decision("ask", "qilla guard: remote connection / guarded action — needs the user's explicit approval for THIS use. Do not look for workarounds.")
 				return nil
 			}
+		}
+		if deny, reason := bashWriteGuard(cfg, cfg.Role(), cmd); deny {
+			decision("deny", "qilla guard: "+reason)
+			return nil
+		}
+	case "write":
+		p := in.ToolInput.FilePath
+		if p == "" {
+			p = in.ToolInput.NotebookPath
+		}
+		if deny, reason := writeGuard(cfg, cfg.Role(), shortHostname(), p, time.Now()); deny {
+			decision("deny", "qilla guard: "+reason)
+			return nil
 		}
 	case "read":
 		p := in.ToolInput.FilePath
