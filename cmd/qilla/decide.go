@@ -401,6 +401,8 @@ func applyDecidersConfig(req *decide.AskRequest) error {
 	}
 	req.JevEnabled = cfg.Deciders.JevEnabled
 	req.JevURL = cfg.Deciders.JevURL
+	req.JevModel = cfg.Deciders.JevModel
+	req.JevDailyMax = cfg.Deciders.JevDailyMax
 	if req.Route == "jev" && cfg.Deciders.JevEnabled {
 		if b, err := readSecret("jev_key"); err == nil {
 			req.JevKey = strings.TrimSpace(string(b))

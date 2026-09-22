@@ -106,7 +106,9 @@ max_mb = 5
 # conf_floor = 0.85                     # below this the answer is "unknown" — undecided, never a guess (Variables.md decider_conf_floor)
 # policy_version = "ask-v1"             # tags every line of <state_dir>/deciders/decisions.jsonl
 # jev_enabled = false                   # the remote route, off by default (Variables.md decider_jev_enabled)
-# jev_url = ""                          # remote endpoint; its bearer token is the `jev_key` secret, never this file
+# jev_url = "https://api.typesafe.ai"   # remote endpoint (TypeSafe AI); its bearer token is the `jev_key` secret, never this file
+# jev_model = "jev-latest"              # remote model name or alias (GET /v1/models lists them)
+# jev_daily_max = 200                   # hard cap on remote calls per day (Variables.md decider_jev_daily_max)
 
 [memory]                                # working memory: what qilla needs and you never read
 backend = "engram"                      # engram (sidecar, default) | sqlite (own FTS5 tables)

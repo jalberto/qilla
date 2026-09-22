@@ -43,6 +43,24 @@ const (
 	DefaultPolicyVersion = "ask-v1"
 	// AskTimeout: Lemonade must answer fast; a slow decider is a broken one.
 	AskTimeout = 5 * time.Second
+	// DefaultJevURL is the TypeSafe AI API root; the System One path is
+	// appended to it.
+	DefaultJevURL = "https://api.typesafe.ai"
+	// DefaultJevModel is the model alias the API resolves to its current
+	// System One model.
+	DefaultJevModel = "jev-latest"
+	// JevPath is the System One endpoint.
+	JevPath = "/v1/systemone"
+	// JevTimeout: the remote route crosses the network, so it gets longer
+	// than Lemonade.
+	JevTimeout = 10 * time.Second
+	// DefaultJevDailyMax mirrors Killa/Config/Variables.md
+	// `decider_jev_daily_max`.
+	DefaultJevDailyMax = 200
+	// jevQuestion is the single question name every request uses.
+	jevQuestion = "q"
+	// jevMaxRetryAfter caps how long a 429's Retry-After is honoured.
+	jevMaxRetryAfter = 5 * time.Second
 )
 
 const (
@@ -90,6 +108,14 @@ type AskRequest struct {
 	// JevURL and JevKey are the remote route's endpoint and bearer token
 	// ([deciders] jev_url, secret `jev_key`).
 	JevURL, JevKey string
+	// JevModel is the remote model name or alias ([deciders] jev_model).
+	JevModel string
+	// JevDailyMax caps remote calls per day ([deciders] jev_daily_max):
+	// 0 falls back to DefaultJevDailyMax, negative means no cap.
+	JevDailyMax int
+	// TraceDir is <state_dir>/deciders, where the daily cap counts today's
+	// jev calls; AskAndTrace fills it in when it is empty.
+	TraceDir string
 	// Timeout overrides AskTimeout.
 	Timeout time.Duration
 	// Client overrides http.DefaultClient (tests).
@@ -110,6 +136,9 @@ type AskResult struct {
 	Model    string
 	MS       int
 	Error    string
+	// Tokens is the remote route's billed input tokens (0 for local); it
+	// reaches the trace, not the CLI's JSON.
+	Tokens int
 }
 
 // MarshalJSON writes the fields in the Python CLI's order, and keeps its two
@@ -198,9 +227,12 @@ func (req AskRequest) baseURL() string {
 	return DefaultLemonadeURL
 }
 
-func (req AskRequest) timeout() time.Duration {
+func (req AskRequest) timeoutFor(route string) time.Duration {
 	if req.Timeout > 0 {
 		return req.Timeout
+	}
+	if route == "jev" {
+		return JevTimeout
 	}
 	return AskTimeout
 }
@@ -587,55 +619,262 @@ func scoreConf(positions [][]candidate, answer string) (float64, bool) {
 
 // --- the jev route ---------------------------------------------------------
 
-// askJev is the opt-in remote route, off unless explicitly enabled and
-// configured.
+// askJev is the opt-in remote route: TypeSafe AI's System One API
+// (`POST <jev_url>/v1/systemone`, bearer `jev_key`), one typed question per
+// call under the name "q".
 //
-// TODO: the payload here is a placeholder — a generic {"text", "labels"} POST
-// and a {"label", "conf"} reply. The real Jev API shape is not settled; do not
-// treat this as its contract. Callers must pass Public: nothing sensitive goes
-// off the machine.
-func askJev(ctx context.Context, req AskRequest, options []string) (label string, conf float64, errMsg string) {
+// The wire contract is the SDK's: the body is
+// `{"state", "model", "questions": {"q": {"type", "instructions", "criteria"}}}`
+// and the answer is a noul (`noul`: P(yes)), a choice (`choice`,
+// `probabilities`, `confidence`) or a score (`score` expected value,
+// `probabilities`, `legend`, `confidence`).
+//
+// Callers must pass Public: nothing sensitive goes off the machine. A failure
+// is never a fallback to the local route — it is an unknown with the cause.
+//
+// The error strings never carry the response body: it could echo the key.
+type jevResult struct {
+	label  string
+	conf   float64
+	dist   map[string]float64
+	value  *int
+	model  string
+	tokens int
+	errMsg string
+}
+
+func jevUnknown(msg string) jevResult { return jevResult{label: Unknown, errMsg: msg} }
+
+func (req AskRequest) jevURL() string {
+	base := strings.TrimRight(req.JevURL, "/")
+	if base == "" {
+		base = DefaultJevURL
+	}
+	return base + JevPath
+}
+
+func (req AskRequest) jevModel() string {
+	if req.JevModel != "" {
+		return req.JevModel
+	}
+	return DefaultJevModel
+}
+
+func (req AskRequest) jevDailyMax() int {
+	if req.JevDailyMax == 0 {
+		return DefaultJevDailyMax
+	}
+	return req.JevDailyMax
+}
+
+// jevScoreLevels is the rubric a score question is asked over: the caller's
+// options when it named them, else the local route's 0-100 scale, one level
+// per integer, so a score means the same thing on both routes.
+func jevScoreLevels(options []string) []string {
+	if len(options) > 0 {
+		return options
+	}
+	levels := make([]string, 0, scoreMax-scoreMin+1)
+	for i := scoreMin; i <= scoreMax; i++ {
+		levels = append(levels, strconv.Itoa(i))
+	}
+	return levels
+}
+
+// jevQuestionBody is the question object for one request — `unknown` is the
+// local escape, not an API label, so it is never sent as a criterion.
+func jevQuestionBody(req AskRequest) map[string]any {
+	q := map[string]any{"instructions": req.Question}
+	switch req.Kind {
+	case "noul":
+		q["type"] = "noul"
+	case "score":
+		levels := jevScoreLevels(req.Options)
+		criteria := make([]any, 0, len(levels))
+		for _, l := range levels {
+			criteria = append(criteria, l)
+		}
+		q["type"] = "score"
+		q["criteria"] = criteria
+	default:
+		criteria := make(map[string]any, len(req.Options))
+		for _, o := range req.Options {
+			if o != Unknown {
+				criteria[o] = nil
+			}
+		}
+		q["type"] = "choice"
+		q["criteria"] = criteria
+	}
+	return q
+}
+
+func askJev(ctx context.Context, req AskRequest) jevResult {
 	if !req.JevEnabled {
-		return Unknown, 0, "jev disabled"
+		return jevUnknown("jev disabled")
 	}
-	if req.JevURL == "" || req.JevKey == "" {
-		return Unknown, 0, "jev not configured"
+	if req.JevKey == "" {
+		return jevUnknown("jev not configured")
 	}
-	payload, _ := json.Marshal(map[string]any{"text": req.Text, "labels": options})
-	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, req.JevURL, bytes.NewReader(payload))
+	if max := req.jevDailyMax(); max >= 0 && req.TraceDir != "" {
+		if CountRouteToday(req.TraceDir, "jev") >= max {
+			return jevUnknown("jev daily cap")
+		}
+	}
+	payload, err := json.Marshal(map[string]any{
+		"state":     req.Text,
+		"model":     req.jevModel(),
+		"questions": map[string]any{jevQuestion: jevQuestionBody(req)},
+	})
 	if err != nil {
-		return Unknown, 0, "jev unreachable"
+		return jevUnknown("jev unreachable")
+	}
+	raw, errMsg := jevPost(ctx, req, payload, true)
+	if errMsg != "" {
+		return jevUnknown(errMsg)
+	}
+	return jevAnswer(req, raw)
+}
+
+// jevPost sends the body once; a 429 is retried once after Retry-After (or
+// immediately when the header is absent), then given up on.
+func jevPost(ctx context.Context, req AskRequest, payload []byte, mayRetry bool) ([]byte, string) {
+	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, req.jevURL(), bytes.NewReader(payload))
+	if err != nil {
+		return nil, "jev unreachable"
 	}
 	hreq.Header.Set("Content-Type", "application/json")
+	hreq.Header.Set("Accept", "application/json")
 	hreq.Header.Set("Authorization", "Bearer "+req.JevKey)
 	resp, err := req.client().Do(hreq)
 	if err != nil {
-		return Unknown, 0, "jev unreachable"
+		return nil, "jev unreachable"
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusTooManyRequests {
+		if !mayRetry {
+			return nil, "jev rate limited"
+		}
+		if !jevWait(ctx, retryAfter(resp.Header.Get("Retry-After"))) {
+			return nil, "jev rate limited"
+		}
+		return jevPost(ctx, req, payload, false)
+	}
+	if resp.StatusCode >= 400 {
+		// Never the body: it can quote the request, and the request carries
+		// nothing but the state — the key lives in the headers it echoes.
+		return nil, fmt.Sprintf("jev http %d", resp.StatusCode)
+	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return Unknown, 0, "jev unreachable"
+		return nil, "jev unreachable"
 	}
-	var body map[string]any
-	if err := json.Unmarshal(raw, &body); err != nil {
-		return Unknown, 0, "jev unreachable"
-	}
-	label, _ = body["label"].(string)
-	if !contains(options, label) {
-		label = Unknown
-	}
-	conf, _ = toFloat(body["conf"])
-	return label, conf, ""
+	return raw, ""
 }
 
-func contains(xs []string, s string) bool {
-	for _, x := range xs {
-		if x == s {
-			return true
+// retryAfter reads the delta-seconds form of Retry-After, capped.
+func retryAfter(h string) time.Duration {
+	secs, err := strconv.Atoi(strings.TrimSpace(h))
+	if err != nil || secs < 0 {
+		return 0
+	}
+	d := time.Duration(secs) * time.Second
+	if d > jevMaxRetryAfter {
+		return jevMaxRetryAfter
+	}
+	return d
+}
+
+// jevWait sleeps d, reporting false when the context died first.
+func jevWait(ctx context.Context, d time.Duration) bool {
+	if d <= 0 {
+		return ctx.Err() == nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+// jevAnswer maps one System One response onto the local route's shape, so a
+// caller cannot tell the routes apart beyond `route` and `model`.
+func jevAnswer(req AskRequest, raw []byte) jevResult {
+	var body map[string]any
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return jevUnknown("jev bad response")
+	}
+	out := jevResult{label: Unknown}
+	out.model, _ = body["model"].(string)
+	if out.model == "" {
+		out.model = req.jevModel()
+	}
+	if t, ok := toFloat(dig(body, "usage", "input_tokens")); ok {
+		out.tokens = int(t)
+	}
+	answer, ok := dig(body, "answers", jevQuestion).(map[string]any)
+	if !ok {
+		return jevResult{label: Unknown, model: out.model, tokens: out.tokens, errMsg: "jev bad response"}
+	}
+	conf, hasConf := toFloat(answer["confidence"])
+	switch req.Kind {
+	case "noul":
+		p, ok := toFloat(answer["noul"])
+		if !ok {
+			out.errMsg = "jev bad response"
+			return out
+		}
+		out.dist = map[string]float64{"yes": p, "no": 1 - p}
+		out.label = argmax(out.dist, noulOptions)
+		out.conf = out.dist[out.label]
+	case "score":
+		score, ok := toFloat(answer["score"])
+		if !ok {
+			out.errMsg = "jev bad response"
+			return out
+		}
+		v := int(math.Round(score))
+		out.value = &v
+		out.label = strconv.Itoa(v)
+		out.conf = conf
+		if !hasConf {
+			out.conf = jevTopProb(answer)
+		}
+	default:
+		probs, _ := answer["probabilities"].(map[string]any)
+		dist := make(map[string]float64, len(probs))
+		for _, o := range req.Options {
+			if p, ok := toFloat(probs[o]); ok {
+				dist[o] = p
+			}
+		}
+		if len(dist) == 0 {
+			out.errMsg = "jev bad response"
+			return out
+		}
+		out.dist = dist
+		out.label = argmax(dist, req.Options)
+		out.conf = dist[out.label]
+	}
+	if hasConf && req.Kind != "score" {
+		out.conf = conf
+	}
+	return out
+}
+
+// jevTopProb is the fallback confidence: the highest probability reported.
+func jevTopProb(answer map[string]any) float64 {
+	probs, _ := answer["probabilities"].(map[string]any)
+	best := 0.0
+	for _, v := range probs {
+		if p, ok := toFloat(v); ok && p > best {
+			best = p
 		}
 	}
-	return false
+	return best
 }
 
 // --- the decision ----------------------------------------------------------
@@ -669,14 +908,19 @@ func Ask(ctx context.Context, req AskRequest) (AskResult, error) {
 		label    = Unknown
 		conf     float64
 		value    *int
+		tokens   int
 	)
 
-	cctx, cancel := context.WithTimeout(ctx, req.timeout())
+	cctx, cancel := context.WithTimeout(ctx, req.timeoutFor(route))
 	defer cancel()
 
 	if route == "jev" {
-		label, conf, errMsg = askJev(cctx, req, options)
-		model = "jev"
+		jr := askJev(cctx, req)
+		label, conf, dist, value, errMsg, tokens = jr.label, jr.conf, jr.dist, jr.value, jr.errMsg, jr.tokens
+		model = jr.model
+		if model == "" {
+			model = "jev"
+		}
 	} else {
 		body, err := chat(cctx, req, BuildPrompt(req.Kind, options, req.Question, req.Text))
 		switch {
@@ -726,6 +970,7 @@ func Ask(ctx context.Context, req AskRequest) (AskResult, error) {
 		DistFrom: distFrom,
 		Route:    route,
 		Model:    model,
+		Tokens:   tokens,
 		MS:       int(math.Round(float64(time.Since(started).Microseconds()) / 1000)),
 	}
 	if kind == "score" {
@@ -781,6 +1026,9 @@ func TraceLabel(out AskResult) string {
 // outcome is unknown). An unwritable trace is never fatal: the decision stands
 // and the write error is returned alongside it.
 func AskAndTrace(ctx context.Context, dir string, req AskRequest) (AskResult, error) {
+	if req.TraceDir == "" {
+		req.TraceDir = dir // the jev daily cap counts today's lines here
+	}
 	out, err := Ask(ctx, req)
 	if err != nil {
 		return out, err
@@ -808,6 +1056,7 @@ func AskAndTrace(ctx context.Context, dir string, req AskRequest) (AskResult, er
 		PolicyVersion: req.PolicyVer(),
 		MS:            out.MS,
 		Caller:        req.Caller,
+		Tokens:        out.Tokens,
 	})
 	if werr := AppendTrace(dir, line, req.Text); werr != nil {
 		return out, werr

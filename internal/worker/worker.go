@@ -468,7 +468,7 @@ func (w *Worker) gatherStar(ctx context.Context, dir, name string, dry bool) (st
 		// decide() needs no capability: it only reads the exported models.
 		DecidersDir: filepath.Join(w.Cfg.StateDir, "deciders"),
 		// ask() talks to the local Lemonade; [deciders] says where and how.
-		AskConfig: w.askConfig,
+		AskConfig: w.askConfigFor(env["QILLA_SECRETS_DIR"]),
 		// fetch() climbs the ladder on the [browser] identity.
 		BrowserProfile: w.Cfg.Browser.Profile,
 		BrowserSession: w.Cfg.Browser.Session,
@@ -880,22 +880,31 @@ func (w *Worker) commitVault(ctx context.Context, routine string) (string, error
 	return "committed: " + msg, nil
 }
 
-// askConfig fills the star `ask()` builtin's backend wiring from [deciders].
-// The jev key is a secret: it is only read when the routine actually has a
-// secrets directory and the remote route is on.
-func (w *Worker) askConfig(req *decide.AskRequest) {
-	req.URL = w.Cfg.Deciders.LemonadeURL
-	req.Model = w.Cfg.Deciders.AskModel
-	req.PolicyVersion = w.Cfg.Deciders.PolicyVersion
-	if req.Floor == 0 {
-		req.Floor = w.Cfg.Deciders.ConfFloor
-	}
-	req.JevEnabled = w.Cfg.Deciders.JevEnabled
-	req.JevURL = w.Cfg.Deciders.JevURL
-	if req.Route == "jev" && req.JevEnabled {
-		if d := os.Getenv("QILLA_SECRETS_DIR"); d != "" {
-			if b, err := os.ReadFile(filepath.Join(d, "jev_key")); err == nil {
-				req.JevKey = strings.TrimSpace(string(b))
+// askConfigFor fills the star `ask()` builtin's backend wiring from
+// [deciders]. The jev key is a secret: it is read from the routine's mounted
+// secrets directory (the gather env, not the worker's own environment), only
+// when the remote route is asked for and enabled.
+func (w *Worker) askConfigFor(secretsDir string) func(*decide.AskRequest) {
+	return func(req *decide.AskRequest) {
+		req.URL = w.Cfg.Deciders.LemonadeURL
+		req.Model = w.Cfg.Deciders.AskModel
+		req.PolicyVersion = w.Cfg.Deciders.PolicyVersion
+		if req.Floor == 0 {
+			req.Floor = w.Cfg.Deciders.ConfFloor
+		}
+		req.JevEnabled = w.Cfg.Deciders.JevEnabled
+		req.JevURL = w.Cfg.Deciders.JevURL
+		req.JevModel = w.Cfg.Deciders.JevModel
+		req.JevDailyMax = w.Cfg.Deciders.JevDailyMax
+		if req.Route == "jev" && req.JevEnabled {
+			for _, d := range []string{secretsDir, os.Getenv("QILLA_SECRETS_DIR"), os.Getenv("CREDENTIALS_DIRECTORY")} {
+				if d == "" {
+					continue
+				}
+				if b, err := os.ReadFile(filepath.Join(d, "jev_key")); err == nil {
+					req.JevKey = strings.TrimSpace(string(b))
+					return
+				}
 			}
 		}
 	}

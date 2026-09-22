@@ -47,6 +47,9 @@ type TraceLine struct {
 	PolicyVersion string             `json:"policy_version"`
 	MS            int                `json:"ms"`
 	Caller        string             `json:"caller"`
+	// Tokens are the remote route's billed input tokens; the local route
+	// bills none, so the field is left off its lines.
+	Tokens int `json:"tokens,omitempty"`
 }
 
 // escapeLine is a trace line plus the truncated text, for ask-escapes.jsonl.
@@ -70,6 +73,7 @@ type TraceInput struct {
 	PolicyVersion string
 	MS            int
 	Caller        string
+	Tokens        int
 }
 
 // SHA1Hex is the hex sha1 of a string.
@@ -109,7 +113,36 @@ func TraceRecord(in TraceInput) TraceLine {
 		PolicyVersion: in.PolicyVersion,
 		MS:            in.MS,
 		Caller:        in.Caller,
+		Tokens:        in.Tokens,
 	}
+}
+
+// CountRouteToday counts today's trace lines for one route — what the jev
+// daily cap is checked against. A missing or unreadable trace counts zero:
+// the cap never blocks a decision because a file is absent.
+func CountRouteToday(dir, route string) int {
+	data, err := os.ReadFile(filepath.Join(dir, TraceFile))
+	if err != nil {
+		return 0
+	}
+	day := time.Now().UTC().Format("2006-01-02")
+	n := 0
+	for _, ln := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(ln) == "" {
+			continue
+		}
+		var row struct {
+			TS    string `json:"ts"`
+			Route string `json:"route"`
+		}
+		if err := json.Unmarshal([]byte(ln), &row); err != nil {
+			continue
+		}
+		if row.Route == route && strings.HasPrefix(row.TS, day) {
+			n++
+		}
+	}
+	return n
 }
 
 func appendJSONL(path string, v any) error {

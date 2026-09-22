@@ -212,7 +212,8 @@ type Health struct {
 // Naming mirrors Killa/Config/Variables.md — `conf_floor` is its
 // `decider_conf_floor`, `jev_enabled` its `decider_jev_enabled` — but this
 // TOML is the source of truth for qilla; Variables.md documents the intent.
-// The Jev daily cap (`decider_jev_daily_max`) is not enforced here yet.
+// `jev_daily_max` is the cap on remote calls per day (Variables.md
+// `decider_jev_daily_max`), counted over today's `route="jev"` trace lines.
 // `jev_key` is a secret, read from $QILLA_SECRETS_DIR/jev_key, never from TOML.
 type Deciders struct {
 	LemonadeURL   string  `toml:"lemonade_url"`   // OpenAI-compatible base, default http://127.0.0.1:13305/api/v1
@@ -220,7 +221,9 @@ type Deciders struct {
 	ConfFloor     float64 `toml:"conf_floor"`     // below this the answer is unknown (default 0.85)
 	PolicyVersion string  `toml:"policy_version"` // tags every trace line (default ask-v1)
 	JevEnabled    bool    `toml:"jev_enabled"`    // the remote route, off by default
-	JevURL        string  `toml:"jev_url"`        // remote endpoint; the key is the `jev_key` secret
+	JevURL        string  `toml:"jev_url"`        // remote endpoint; the key is the `jev_key` secret (default https://api.typesafe.ai)
+	JevModel      string  `toml:"jev_model"`      // remote model name or alias (default jev-latest)
+	JevDailyMax   int     `toml:"jev_daily_max"`  // remote calls allowed per day (default 200)
 }
 
 // Plugins are Claude Code plugin directories loaded only into qilla's own spawns
@@ -357,6 +360,11 @@ func (c *Config) applyDefaults() {
 	def(&c.Deciders.PolicyVersion, decide.DefaultPolicyVersion)
 	if c.Deciders.ConfFloor == 0 {
 		c.Deciders.ConfFloor = decide.DefaultFloor
+	}
+	if c.Deciders.JevEnabled {
+		def(&c.Deciders.JevURL, decide.DefaultJevURL)
+		def(&c.Deciders.JevModel, decide.DefaultJevModel)
+		defInt(&c.Deciders.JevDailyMax, decide.DefaultJevDailyMax)
 	}
 	defInt(&c.Tasks.WarnDays, 3)
 	defInt(&c.Tasks.StaleDays, 7)
