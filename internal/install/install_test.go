@@ -125,6 +125,38 @@ func TestCredentialsLines(t *testing.T) {
 	}
 }
 
+func TestUnitsWorkerRole(t *testing.T) {
+	host, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Web:      config.Web{Listen: "127.0.0.1:7433"},
+		StateDir: "/h/.local/state/qilla",
+		Memory:   config.Memory{Backend: "engram", EngramURL: "unix:///run/user/1000/qilla-engram.sock"},
+		Host:     config.Host{Roles: map[string]string{host: "worker", "midori": "brain"}},
+		Routines: map[string]config.Routine{
+			"brief":       {Kind: "ai-fresh", Schedule: "*-*-* 08:30"},
+			"qmd-refresh": {Kind: "script", Schedule: "*-*-* *:15"},
+		},
+	}
+	u := Units(cfg, Paths{ConfigDir: "/h/.config/qilla", UnitDir: "/h/.config/systemd/user", Qilla: "/h/.local/bin/qilla", Mise: "/h/.local/bin/mise"})
+	want := []string{"qilla-qmd-refresh.timer", "qilla-qmd-refresh.service"}
+	if len(u) != len(want) {
+		t.Fatalf("worker units: got %v, want only %v", u, want)
+	}
+	for _, w := range want {
+		if _, ok := u[w]; !ok {
+			t.Fatalf("worker missing %s", w)
+		}
+	}
+	// no qmd-refresh routine configured => no units at all
+	cfg.Routines = map[string]config.Routine{"brief": {Kind: "ai-fresh", Schedule: "*-*-* 08:30"}}
+	if u := Units(cfg, Paths{ConfigDir: "/h/.config/qilla", Qilla: "/q"}); len(u) != 0 {
+		t.Fatalf("worker without qmd-refresh routine must get no units: %v", u)
+	}
+}
+
 func homeDir(t *testing.T) string {
 	t.Helper()
 	h, err := os.UserHomeDir()

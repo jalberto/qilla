@@ -426,12 +426,21 @@ func Run(cfg *config.Config, loadErr error, env Env) []Check {
 		}
 	}
 
+	// host role
+	if hostname, err := os.Hostname(); err == nil {
+		add("host role", true, false, fmt.Sprintf("%s (%s)", cfg.Role(), hostname))
+	} else {
+		add("host role", true, false, cfg.Role())
+	}
+
 	// units
 	if env.UnitActive != nil {
-		if env.UnitActive("qilla.socket") {
-			add("qilla.socket", true, false, "active")
-		} else {
-			add("qilla.socket", false, false, "not active — systemctl --user enable --now qilla.socket")
+		if cfg.IsBrain() {
+			if env.UnitActive("qilla.socket") {
+				add("qilla.socket", true, false, "active")
+			} else {
+				add("qilla.socket", false, false, "not active — systemctl --user enable --now qilla.socket")
+			}
 		}
 		units := install.Units(cfg, install.Paths{})
 		inactive := []string{}

@@ -53,3 +53,26 @@ func TestDefaults(t *testing.T) {
 		t.Fatalf("defaults missing: %+v", c)
 	}
 }
+
+func TestRoleFor(t *testing.T) {
+	roles := map[string]string{"midori": "brain", "akane": "worker"}
+	cases := []struct {
+		name     string
+		hostname string
+		roles    map[string]string
+		want     string
+	}{
+		{"empty table defaults to brain", "akane", nil, RoleBrain},
+		{"known worker", "akane", roles, RoleWorker},
+		{"known brain", "midori", roles, RoleBrain},
+		{"unknown host with non-empty table is worker", "unknown-host", roles, RoleWorker},
+		{"domain suffix stripped", "akane.example.com", roles, RoleWorker},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := roleFor(tc.hostname, tc.roles); got != tc.want {
+				t.Errorf("roleFor(%q, %v) = %q, want %q", tc.hostname, tc.roles, got, tc.want)
+			}
+		})
+	}
+}

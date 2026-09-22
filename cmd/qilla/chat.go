@@ -92,7 +92,17 @@ func cmdChat(args []string) error {
 	case choice.Effort != "":
 		eff = choice.Effort // the tier's effort (coding → medium)
 	}
-	useRC := (cfg.Chat.RC == nil || *cfg.Chat.RC) && *rc && !*noRC
+	rcExplicit := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "rc" {
+			rcExplicit = true
+		}
+	})
+	rcDefault := cfg.Chat.RC == nil || *cfg.Chat.RC
+	if !cfg.IsBrain() && !rcExplicit {
+		rcDefault = false // worker: RC off unless --rc is passed explicitly
+	}
+	useRC := rcDefault && *rc && !*noRC
 	q, err := queue.Open(cfg.DBPath())
 	if err != nil {
 		return err
@@ -177,7 +187,7 @@ func cmdChat(args []string) error {
 		fmt.Fprintf(os.Stderr, "\033[34m» qilla runs in %s (your shell stays in %s)\033[0m\n", workdir, cwd)
 	}
 	fmt.Fprint(os.Stderr, "\033]0;◆ qilla\a") // terminal title
-	fmt.Fprintf(os.Stderr, "\033[45;30m ◆ qilla \033[0m %s · %s/%s%s · %s\n", agent, choice.Model, eff, map[bool]string{true: " · rc", false: ""}[useRC], workdir)
+	fmt.Fprintf(os.Stderr, "\033[45;30m ◆ qilla · %s \033[0m %s · %s/%s%s · %s\n", cfg.Role(), agent, choice.Model, eff, map[bool]string{true: " · rc", false: ""}[useRC], workdir)
 	return syscall.Exec(bin, argv, env)
 }
 

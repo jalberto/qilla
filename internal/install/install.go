@@ -55,7 +55,61 @@ type Paths struct {
 }
 
 // Units renders every systemd unit for cfg. Keys are file names.
+// A worker host only gets the qilla-qmd-refresh timer/service (when that
+// routine is configured): no socket, no supervisor, no engram sidecar, no
+// reconcile, no other routine timers.
 func Units(cfg *config.Config, p Paths) map[string]string {
+	if !cfg.IsBrain() {
+		return workerUnits(cfg, p)
+	}
+	return brainUnits(cfg, p)
+}
+
+func workerUnits(cfg *config.Config, p Paths) map[string]string {
+	u := map[string]string{}
+	r, ok := cfg.Routines["qmd-refresh"]
+	if !ok || strings.EqualFold(strings.TrimSpace(r.Schedule), "manual") {
+		return u
+	}
+	env := "Environment=PATH=%h/.local/share/mise/shims:%h/.local/bin:/usr/local/bin:/usr/bin:/bin\n" +
+		"Environment=QILLA_CONFIG=" + filepath.Join(p.ConfigDir, "qilla.toml") + "\n" +
+		"Environment=MISE_GLOBAL_CONFIG_FILE=" + filepath.Join(p.ConfigDir, "mise.toml") + " MISE_IGNORED_CONFIG_PATHS=%h/.config/mise/config.toml\n" +
+		"Environment=MISE_AUTO_INSTALL=false MISE_YES=1 MISE_QUIET=1"
+	exec := func(args string) string {
+		if p.Mise != "" {
+			return fmt.Sprintf("%s -C %s exec -- %s %s", p.Mise, p.ConfigDir, p.Qilla, args)
+		}
+		return p.Qilla + " " + args
+	}
+	var cal strings.Builder
+	for _, part := range strings.Split(r.Schedule, ";") {
+		if part = strings.TrimSpace(part); part != "" {
+			fmt.Fprintf(&cal, "OnCalendar=%s\n", part)
+		}
+	}
+	u["qilla-qmd-refresh.timer"] = fmt.Sprintf(`[Unit]
+Description=qilla routine qmd-refresh (%s)
+
+[Timer]
+%sPersistent=true
+RandomizedDelaySec=1min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
+`, r.Kind, cal.String())
+	u["qilla-qmd-refresh.service"] = fmt.Sprintf(`[Unit]
+Description=qilla enqueue qmd-refresh
+
+[Service]
+Type=oneshot
+%s
+ExecStart=%s
+`, env, exec("enqueue qmd-refresh"))
+	return u
+}
+
+func brainUnits(cfg *config.Config, p Paths) map[string]string {
 	exec := func(args string) string {
 		if p.Mise != "" {
 			return fmt.Sprintf("%s -C %s exec -- %s %s", p.Mise, p.ConfigDir, p.Qilla, args)

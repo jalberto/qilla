@@ -15,6 +15,13 @@ import (
 	"github.com/jalberto/qilla/internal/worker"
 )
 
+// brainOnlyRoutines are refused on a worker host (host-roles-worker §5).
+var brainOnlyRoutines = map[string]bool{
+	"brief": true, "wallapop": true, "newsletters": true, "newsletters-act": true,
+	"learn": true, "retro": true, "remind": true, "notion-poll": true,
+	"notion-tasks": true, "reconcile": true,
+}
+
 // cmdRun: qilla run <routine> — execute one routine now, bypassing the queue
 // (debugging). The run is recorded like any other.
 func cmdRun(args []string) error {
@@ -30,6 +37,10 @@ func cmdRun(args []string) error {
 	cfg, err := config.Load(config.DefaultPath())
 	if err != nil {
 		return err
+	}
+	if !cfg.IsBrain() && brainOnlyRoutines[args[0]] {
+		fmt.Fprintf(os.Stderr, "qilla: %s is brain-only, refused on a worker\n", args[0])
+		os.Exit(2)
 	}
 	if msg := checkBlocks(cfg, args[0], manifestEnv(cfg)); msg != "" {
 		if !*force {

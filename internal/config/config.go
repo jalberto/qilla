@@ -232,6 +232,17 @@ type Plugins struct {
 	Dirs []string `toml:"dirs"`
 }
 
+// Host maps hostnames to roles ("brain" or "worker"). midori is the brain,
+// akane (and any unknown host, when the table is non-empty) is a worker.
+type Host struct {
+	Roles map[string]string `toml:"roles"`
+}
+
+const (
+	RoleBrain  = "brain"
+	RoleWorker = "worker"
+)
+
 // Config is the whole file.
 type Config struct {
 	Vault         string             `toml:"vault"`
@@ -264,6 +275,7 @@ type Config struct {
 	Plugins       Plugins            `toml:"plugins"`
 	Health        Health             `toml:"health"`
 	Deciders      Deciders           `toml:"deciders"`
+	Host          Host               `toml:"host"`
 	Agents        map[string]Agent   `toml:"agents"`
 	Routines      map[string]Routine `toml:"routines"`
 
@@ -277,6 +289,38 @@ func (c *Config) MCPConfig() string {
 		return ""
 	}
 	return p
+}
+
+// Role resolves this host's role from [host].roles against os.Hostname()
+// (domain suffix stripped). An empty table defaults to "brain" so existing
+// installs keep today's behaviour; a non-empty table defaults unknown hosts
+// to "worker".
+func (c *Config) Role() string {
+	name, err := os.Hostname()
+	if err != nil {
+		name = ""
+	}
+	return roleFor(name, c.Host.Roles)
+}
+
+// roleFor resolves a role from a hostname (domain suffix stripped) against
+// a roles table. Extracted from Role for testability.
+func roleFor(hostname string, roles map[string]string) string {
+	if len(roles) == 0 {
+		return RoleBrain
+	}
+	if i := strings.IndexByte(hostname, '.'); i >= 0 {
+		hostname = hostname[:i]
+	}
+	if role, ok := roles[hostname]; ok {
+		return role
+	}
+	return RoleWorker
+}
+
+// IsBrain reports whether this host's resolved role is "brain".
+func (c *Config) IsBrain() bool {
+	return c.Role() == RoleBrain
 }
 
 // DefaultPath is ~/.config/qilla/qilla.toml (or $QILLA_CONFIG).

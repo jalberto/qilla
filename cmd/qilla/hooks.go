@@ -140,6 +140,9 @@ func cmdHook(args []string) error {
 			}
 		}
 		parts = append(parts, sessionSignals(cfg)...)
+		if !cfg.IsBrain() {
+			parts = append(parts, "host role: worker — brain-owned files (Desk/Journal, Desk/Todo, Desk/Questions, Desk/Briefings, Qilla/Facts, Life/People, Qilla/Config, Qilla/Improvements, Qilla/Context) are written only via Qilla/Handoff/<host>.md")
+		}
 		if cfg.Hooks.SessionStart != "" {
 			c := exec.Command("sh", "-c", cfg.Hooks.SessionStart)
 			c.Dir = in.Cwd // user hooks often key on $PWD being the vault
