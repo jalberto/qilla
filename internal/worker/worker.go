@@ -469,6 +469,10 @@ func (w *Worker) gatherStar(ctx context.Context, dir, name string, dry bool) (st
 		DecidersDir: filepath.Join(w.Cfg.StateDir, "deciders"),
 		// ask() talks to the local Lemonade; [deciders] says where and how.
 		AskConfig: w.askConfig,
+		// fetch() climbs the ladder on the [browser] identity.
+		BrowserProfile: w.Cfg.Browser.Profile,
+		BrowserSession: w.Cfg.Browser.Session,
+		BrowserClass:   w.Cfg.Browser.Class,
 	}
 	// [capabilities] from the bundle's routine.toml scopes the side effects
 	// the script may have; no manifest ⇒ the frozen, pure runtime.

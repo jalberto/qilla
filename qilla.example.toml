@@ -61,6 +61,9 @@ allowed_domains = ["api.anthropic.com", "wttr.in"]   # egress the sandbox permit
 [browser]                               # headless browsing for routines; handoff to a headed browser when a page needs a human
 headless = "agent-browser"              # profile per agent under state_dir/browser/<agent> (logins survive runs)
 headed = "brave-browser --app=%u --user-data-dir=%p"   # %u url, %p profile; any app-mode browser works; empty = no handoff (N100 without a display)
+profile = "~/.local/share/qilla/browser-profiles/qilla"  # agent-browser --profile for `qilla fetch` rungs 3-4 (logins survive)
+session = "qilla"                       # agent-browser --session: one long-lived daemon, reused across fetches
+class = "qilla-browser"                 # headed window class (--args --class=…) so the WM can keep the window unfocused
 
 [plugins]                               # your own skills, agents and hooks — merged into the single "qilla" Claude Code plugin by `qilla plugin install`
 dirs = ["Qilla/Plugin"]                 # vault-relative: put a .claude-plugin/plugin.json + skills/ there

@@ -124,6 +124,10 @@ type Env struct {
 	// models and ask() appends its decision trace. Empty = the decide()
 	// builtin reports it is not configured and ask() traces nothing.
 	DecidersDir string
+	// BrowserProfile, BrowserSession and BrowserClass are [browser]
+	// profile/session/class: the agent-browser identity fetch() climbs the
+	// ladder's upper rungs with. Empty = the fetch package defaults.
+	BrowserProfile, BrowserSession, BrowserClass string
 	// AskConfig fills ask()'s backend wiring from [deciders] (Lemonade URL,
 	// model, floor, the jev route). nil = the package defaults.
 	AskConfig func(*decide.AskRequest)
@@ -263,24 +267,26 @@ func (r *runner) predeclared() starlark.StringDict {
 
 func (r *runner) frozenPredeclared() starlark.StringDict {
 	return starlark.StringDict{
-		"dry_run":  starlark.Bool(r.env.DryRun),
-		"json":     json.Module,
-		"time":     starlarktime.Module,
-		"math":     starlarkmath.Module,
-		"re":       r.reModule(),
-		"sqlite":   r.sqliteModule(),
-		"mem":      r.memModule(),
-		"run":      starlark.NewBuiltin("run", r.bRun),
-		"read":     starlark.NewBuiltin("read", r.bRead),
-		"exists":   starlark.NewBuiltin("exists", r.bExists),
-		"glob":     starlark.NewBuiltin("glob", r.bGlob),
-		"listdir":  starlark.NewBuiltin("listdir", r.bListdir),
-		"mtime":    starlark.NewBuiltin("mtime", r.bMtime),
-		"env":      starlark.NewBuiltin("env", r.bEnv),
-		"now":      starlark.NewBuiltin("now", r.bNow),
-		"decide":   starlark.NewBuiltin("decide", r.bDecide),
-		"ask":      starlark.NewBuiltin("ask", r.bAsk),
-		"settings": r.settingsValue(),
+		"dry_run":   starlark.Bool(r.env.DryRun),
+		"json":      json.Module,
+		"time":      starlarktime.Module,
+		"math":      starlarkmath.Module,
+		"re":        r.reModule(),
+		"sqlite":    r.sqliteModule(),
+		"mem":       r.memModule(),
+		"run":       starlark.NewBuiltin("run", r.bRun),
+		"read":      starlark.NewBuiltin("read", r.bRead),
+		"exists":    starlark.NewBuiltin("exists", r.bExists),
+		"glob":      starlark.NewBuiltin("glob", r.bGlob),
+		"listdir":   starlark.NewBuiltin("listdir", r.bListdir),
+		"mtime":     starlark.NewBuiltin("mtime", r.bMtime),
+		"env":       starlark.NewBuiltin("env", r.bEnv),
+		"now":       starlark.NewBuiltin("now", r.bNow),
+		"decide":    starlark.NewBuiltin("decide", r.bDecide),
+		"ask":       starlark.NewBuiltin("ask", r.bAsk),
+		"fetch":     starlark.NewBuiltin("fetch", r.bFetch),
+		"page_kind": starlark.NewBuiltin("page_kind", r.bPageKind),
+		"settings":  r.settingsValue(),
 	}
 }
 
