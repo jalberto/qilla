@@ -22,6 +22,7 @@ import (
 	"github.com/jalberto/qilla/internal/artifacts"
 	"github.com/jalberto/qilla/internal/claude"
 	"github.com/jalberto/qilla/internal/config"
+	"github.com/jalberto/qilla/internal/decide"
 	"github.com/jalberto/qilla/internal/install"
 	"github.com/jalberto/qilla/internal/loader"
 	"github.com/jalberto/qilla/internal/manifest"
@@ -466,6 +467,8 @@ func (w *Worker) gatherStar(ctx context.Context, dir, name string, dry bool) (st
 		DryRun:   dry,
 		// decide() needs no capability: it only reads the exported models.
 		DecidersDir: filepath.Join(w.Cfg.StateDir, "deciders"),
+		// ask() talks to the local Lemonade; [deciders] says where and how.
+		AskConfig: w.askConfig,
 	}
 	// [capabilities] from the bundle's routine.toml scopes the side effects
 	// the script may have; no manifest ⇒ the frozen, pure runtime.
@@ -871,4 +874,25 @@ func (w *Worker) commitVault(ctx context.Context, routine string) (string, error
 		return "", fmt.Errorf("git commit: %v %s", err, firstLine(out))
 	}
 	return "committed: " + msg, nil
+}
+
+// askConfig fills the star `ask()` builtin's backend wiring from [deciders].
+// The jev key is a secret: it is only read when the routine actually has a
+// secrets directory and the remote route is on.
+func (w *Worker) askConfig(req *decide.AskRequest) {
+	req.URL = w.Cfg.Deciders.LemonadeURL
+	req.Model = w.Cfg.Deciders.AskModel
+	req.PolicyVersion = w.Cfg.Deciders.PolicyVersion
+	if req.Floor == 0 {
+		req.Floor = w.Cfg.Deciders.ConfFloor
+	}
+	req.JevEnabled = w.Cfg.Deciders.JevEnabled
+	req.JevURL = w.Cfg.Deciders.JevURL
+	if req.Route == "jev" && req.JevEnabled {
+		if d := os.Getenv("QILLA_SECRETS_DIR"); d != "" {
+			if b, err := os.ReadFile(filepath.Join(d, "jev_key")); err == nil {
+				req.JevKey = strings.TrimSpace(string(b))
+			}
+		}
+	}
 }

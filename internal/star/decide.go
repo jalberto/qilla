@@ -1,6 +1,7 @@
 package star
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -117,4 +118,92 @@ func dictStr(d *starlark.Dict, key string) string {
 	}
 	s, _ := starlark.AsString(v)
 	return s
+}
+
+// bAsk is the `ask(kind, text, …)` builtin: one typed decision answered by the
+// local decider model, in-process and synchronous.
+//
+// It needs no capability — it posts to the local Lemonade on 127.0.0.1 and
+// appends a trace line under <state_dir>/deciders. A backend that is down is
+// never an error: the script gets label "unknown" and an "error" key, and
+// **must not act on an unknown**.
+//
+// `floor` defaults to [deciders] conf_floor (0.85 out of the box).
+//
+//	ask("choice", body, options=["respond","archive"], question="…") ->
+//	  {kind, label, conf, dist, route, model, ms[, error][, dist_from]}
+func (r *runner) bAsk(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kw []starlark.Tuple) (starlark.Value, error) {
+	var (
+		kind, text, question, route, caller string
+		optionsv                            starlark.Value
+		// floor 0 = the configured [deciders] conf_floor (default 0.85).
+		floor  float64
+		public bool
+	)
+	if err := starlark.UnpackArgs(b.Name(), args, kw,
+		"kind", &kind, "text", &text,
+		"options?", &optionsv, "question?", &question, "floor?", &floor,
+		"route?", &route, "public?", &public, "caller?", &caller); err != nil {
+		return nil, err
+	}
+	var options []string
+	if optionsv != nil {
+		var err error
+		if options, err = strSlice("ask: options", optionsv); err != nil {
+			return nil, err
+		}
+	}
+	if route == "" {
+		route = "local"
+	}
+	req := decide.AskRequest{
+		Kind: kind, Options: options, Question: question, Text: text,
+		Floor: floor, Route: route, Public: public, Caller: caller,
+	}
+	if req.Caller == "" {
+		req.Caller = r.env.Routine
+	}
+	if r.env.AskConfig != nil {
+		r.env.AskConfig(&req)
+	}
+	res, err := decide.AskAndTrace(context.Background(), r.env.DecidersDir, req)
+	if err != nil && res.Kind == "" {
+		return nil, fmt.Errorf("ask: %w", err)
+	}
+	return askDict(res), nil
+}
+
+// askDict is the result as the script sees it — the same keys as the CLI JSON.
+func askDict(res decide.AskResult) *starlark.Dict {
+	d := starlark.NewDict(9)
+	d.SetKey(starlark.String("kind"), starlark.String(res.Kind))
+	if res.Kind == "score" {
+		if res.Value == nil {
+			d.SetKey(starlark.String("value"), starlark.None)
+		} else {
+			d.SetKey(starlark.String("value"), starlark.MakeInt(*res.Value))
+		}
+	} else {
+		d.SetKey(starlark.String("label"), starlark.String(res.Label))
+		if res.Dist == nil {
+			d.SetKey(starlark.String("dist"), starlark.None)
+		} else {
+			dist := starlark.NewDict(len(res.Dist))
+			for o, p := range res.Dist {
+				dist.SetKey(starlark.String(o), starlark.Float(p))
+			}
+			d.SetKey(starlark.String("dist"), dist)
+		}
+	}
+	d.SetKey(starlark.String("conf"), starlark.Float(res.Conf))
+	if res.DistFrom != "" {
+		d.SetKey(starlark.String("dist_from"), starlark.String(res.DistFrom))
+	}
+	d.SetKey(starlark.String("route"), starlark.String(res.Route))
+	d.SetKey(starlark.String("model"), starlark.String(res.Model))
+	d.SetKey(starlark.String("ms"), starlark.MakeInt(res.MS))
+	if res.Error != "" {
+		d.SetKey(starlark.String("error"), starlark.String(res.Error))
+	}
+	return d
 }

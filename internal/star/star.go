@@ -17,6 +17,9 @@
 //	         read(path) -> str        exists(path) -> bool
 //	         glob(pattern) -> [str]   listdir(path) -> [str]
 //	         mtime(path) -> float     env(name, default="") -> str
+//	         ask(kind, text, options=[], question="", floor=0.85) ->
+//	         {kind, label, conf, dist, route, model, ms} — one typed decision
+//	         from the local decider model; unknown when it is not sure.
 //	         decide(tasks, rows) -> [{id, task, label, p, conf, unknown}] —
 //	         the trained TF-IDF deciders, in-process and read-only; a task
 //	         with no exported model is silently skipped.
@@ -72,6 +75,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jalberto/qilla/internal/decide"
 	"github.com/jalberto/qilla/internal/manifest"
 	"go.starlark.net/lib/json"
 	starlarkmath "go.starlark.net/lib/math"
@@ -117,8 +121,12 @@ type Env struct {
 	// {kind, target} action instead of acting.
 	DryRun bool
 	// DecidersDir is <state_dir>/deciders: where decide() reads the exported
-	// models. Empty = the builtin reports it is not configured.
+	// models and ask() appends its decision trace. Empty = the decide()
+	// builtin reports it is not configured and ask() traces nothing.
 	DecidersDir string
+	// AskConfig fills ask()'s backend wiring from [deciders] (Lemonade URL,
+	// model, floor, the jev route). nil = the package defaults.
+	AskConfig func(*decide.AskRequest)
 }
 
 // Run executes path and returns the gather result as plain Go values
@@ -271,6 +279,7 @@ func (r *runner) frozenPredeclared() starlark.StringDict {
 		"env":      starlark.NewBuiltin("env", r.bEnv),
 		"now":      starlark.NewBuiltin("now", r.bNow),
 		"decide":   starlark.NewBuiltin("decide", r.bDecide),
+		"ask":      starlark.NewBuiltin("ask", r.bAsk),
 		"settings": r.settingsValue(),
 	}
 }

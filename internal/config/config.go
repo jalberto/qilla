@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/jalberto/qilla/internal/decide"
 	"github.com/jalberto/qilla/internal/models"
 )
 
@@ -193,6 +194,23 @@ type Health struct {
 	Freshness       []string `toml:"freshness"`
 }
 
+// Deciders is the local decision layer: the trained TF-IDF arms and
+// `decide ask`, the label-less typed decision a small local model answers.
+//
+// Naming mirrors Killa/Config/Variables.md — `conf_floor` is its
+// `decider_conf_floor`, `jev_enabled` its `decider_jev_enabled` — but this
+// TOML is the source of truth for qilla; Variables.md documents the intent.
+// The Jev daily cap (`decider_jev_daily_max`) is not enforced here yet.
+// `jev_key` is a secret, read from $QILLA_SECRETS_DIR/jev_key, never from TOML.
+type Deciders struct {
+	LemonadeURL   string  `toml:"lemonade_url"`   // OpenAI-compatible base, default http://127.0.0.1:13305/api/v1
+	AskModel      string  `toml:"ask_model"`      // decider checkpoint as Lemonade registers it
+	ConfFloor     float64 `toml:"conf_floor"`     // below this the answer is unknown (default 0.85)
+	PolicyVersion string  `toml:"policy_version"` // tags every trace line (default ask-v1)
+	JevEnabled    bool    `toml:"jev_enabled"`    // the remote route, off by default
+	JevURL        string  `toml:"jev_url"`        // remote endpoint; the key is the `jev_key` secret
+}
+
 // Plugins are Claude Code plugin directories loaded only into qilla's own spawns
 // (vault-relative or absolute). User-space skills live here, never user-wide.
 type Plugins struct {
@@ -230,6 +248,7 @@ type Config struct {
 	Hooks         Hooks              `toml:"hooks"`
 	Plugins       Plugins            `toml:"plugins"`
 	Health        Health             `toml:"health"`
+	Deciders      Deciders           `toml:"deciders"`
 	Agents        map[string]Agent   `toml:"agents"`
 	Routines      map[string]Routine `toml:"routines"`
 
@@ -314,6 +333,12 @@ func (c *Config) applyDefaults() {
 	defInt(&c.Memory.PromoteDays, 14)
 	defInt(&c.Memory.ConflictAutoDays, 7)
 	defInt(&c.Memory.ConsolidateDryRuns, 3)
+	def(&c.Deciders.LemonadeURL, decide.DefaultLemonadeURL)
+	def(&c.Deciders.AskModel, decide.DefaultAskModel)
+	def(&c.Deciders.PolicyVersion, decide.DefaultPolicyVersion)
+	if c.Deciders.ConfFloor == 0 {
+		c.Deciders.ConfFloor = decide.DefaultFloor
+	}
 	defInt(&c.Tasks.WarnDays, 3)
 	defInt(&c.Tasks.StaleDays, 7)
 	c.Vault, c.StateDir, c.QueueDir = Expand(c.Vault), Expand(c.StateDir), Expand(c.QueueDir)

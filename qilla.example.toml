@@ -92,6 +92,14 @@ max_mb = 5
 # warn_days = 3                         # 🟠 from this age on, the briefing flags it
 # stale_days = 7                        # 🔴 from this age on, it is stale
 
+[deciders]                              # the local decision layer: trained TF-IDF arms + `decide ask` (a small model on the GPU)
+# lemonade_url = "http://127.0.0.1:13305/api/v1"          # Lemonade's OpenAI-compatible base
+# ask_model = "decider-2b-GGUF-decider-2b-q8_0.gguf"      # the decider checkpoint as Lemonade registers it
+# conf_floor = 0.85                     # below this the answer is "unknown" — undecided, never a guess (Variables.md decider_conf_floor)
+# policy_version = "ask-v1"             # tags every line of <state_dir>/deciders/decisions.jsonl
+# jev_enabled = false                   # the remote route, off by default (Variables.md decider_jev_enabled)
+# jev_url = ""                          # remote endpoint; its bearer token is the `jev_key` secret, never this file
+
 [memory]                                # working memory: what qilla needs and you never read
 backend = "engram"                      # engram (sidecar, default) | sqlite (own FTS5 tables)
 shared_project = "shared"               # notes every routine/agent sees (tool quirks, house rules); routines otherwise see only their own
