@@ -6,7 +6,6 @@ package plugin
 
 import (
 	"embed"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,8 +18,10 @@ var skills embed.FS
 // Dir returns the plugin directory for a config dir.
 func Dir(configDir string) string { return filepath.Join(configDir, "plugin") }
 
-// Materialize writes/refreshes the plugin tree. agents: name → markdown body.
-func Materialize(configDir string, agents map[string]string) (string, error) {
+// Materialize writes/refreshes the plugin tree. agents: name → markdown body;
+// userDirs are the resolved [plugins].dirs, folded into the same plugin.
+// Returns the plugin dir and the collisions worth reporting.
+func Materialize(configDir string, agents map[string]string, userDirs []string) (string, []string, error) {
 	dir := Dir(configDir)
 	w := func(rel, body string) error {
 		p := filepath.Join(dir, rel)
@@ -36,7 +37,7 @@ func Materialize(configDir string, agents map[string]string) (string, error) {
   "author": { "name": "qilla" }
 }
 `); err != nil {
-		return dir, err
+		return dir, nil, err
 	}
 	if err := w(".claude-plugin/marketplace.json", `{
   "name": "qilla",
@@ -44,30 +45,33 @@ func Materialize(configDir string, agents map[string]string) (string, error) {
   "plugins": [ { "name": "qilla", "source": "./", "description": "qilla runtime plugin: hooks, skills, sub-agents" } ]
 }
 `); err != nil {
-		return dir, err
-	}
-	hooks := map[string]any{"hooks": map[string]any{
-		"SessionStart": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "qilla hook session-start", "timeout": 15}}}},
-		"PreToolUse": []any{
-			map[string]any{"matcher": "Bash", "hooks": []any{map[string]any{"type": "command", "command": "qilla guard bash", "timeout": 10}}},
-			map[string]any{"matcher": "Read", "hooks": []any{map[string]any{"type": "command", "command": "qilla guard read", "timeout": 10}}},
-		},
-		"Stop": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "qilla hook stop", "timeout": 15}}}},
-	}}
-	hb, _ := json.MarshalIndent(hooks, "", "  ")
-	if err := w("hooks/hooks.json", string(hb)+"\n"); err != nil {
-		return dir, err
+		return dir, nil, err
 	}
 	// skills shipped with qilla
 	if err := copyFS(skills, "skills", filepath.Join(dir, "skills")); err != nil {
-		return dir, err
+		return dir, nil, err
 	}
 	for name, body := range agents {
 		if err := w(filepath.Join("agents", name+".md"), body); err != nil {
-			return dir, err
+			return dir, nil, err
 		}
 	}
-	return dir, nil
+	// user plugin dirs are folded in here (symlinked skills/agents, merged
+	// hooks) instead of being passed as --plugin-dir per spawn: one plugin.
+	warn, err := Union(dir, userDirs)
+	return dir, warn, err
+}
+
+// BaseHooks is qilla's own hooks.json body, before any user dir is merged in.
+func BaseHooks() map[string][]map[string]any {
+	return map[string][]map[string]any{
+		"SessionStart": {{"hooks": []any{map[string]any{"type": "command", "command": "qilla hook session-start", "timeout": 15}}}},
+		"PreToolUse": {
+			{"matcher": "Bash", "hooks": []any{map[string]any{"type": "command", "command": "qilla guard bash", "timeout": 10}}},
+			{"matcher": "Read", "hooks": []any{map[string]any{"type": "command", "command": "qilla guard read", "timeout": 10}}},
+		},
+		"Stop": {{"hooks": []any{map[string]any{"type": "command", "command": "qilla hook stop", "timeout": 15}}}},
+	}
 }
 
 func copyFS(fsys embed.FS, from, to string) error {

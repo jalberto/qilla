@@ -176,8 +176,9 @@ func TestFreshCallsClaudeWithAgentDefaults(t *testing.T) {
 	if !strings.Contains(a, "--agents ") || !strings.Contains(a, "researcher") {
 		t.Errorf("sub-agent definitions must travel with the spawn: %s", a[:200])
 	}
-	if !strings.Contains(a, "--plugin-dir "+filepath.Join(e.cfg.Vault, "Qilla", "Plugin")) {
-		t.Errorf("vault plugin dir must be loaded per spawn: %s", a)
+	// the vault plugin dir is merged into the installed qilla plugin, never passed per spawn
+	if strings.Contains(a, "--plugin-dir") {
+		t.Errorf("--plugin-dir must be gone (one merged plugin): %s", a)
 	}
 	if !strings.Contains(a, "--allowedTools Read,Grep,Skill") {
 		t.Errorf("Skill must be allowed when plugins are configured: %s", a)

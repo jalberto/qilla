@@ -200,9 +200,12 @@ func cmdPlugin(args []string) error {
 	for name, d := range defs {
 		agents[name] = fmt.Sprintf("---\nname: %s\ndescription: %s\ntools: %s\nmodel: %s\n---\n%s\n", name, d.Description, strings.Join(d.Tools, ", "), d.Model, d.Prompt)
 	}
-	dir, err := plugin.Materialize(confDir, agents)
+	dir, warn, err := plugin.Materialize(confDir, agents, cfg.PluginDirs())
 	if err != nil {
 		return err
+	}
+	for _, w := range warn {
+		fmt.Fprintln(os.Stderr, "qilla: "+w)
 	}
 	fmt.Println("plugin written to", dir)
 	if len(args) == 0 || args[0] != "install" {
@@ -218,8 +221,17 @@ func cmdPlugin(args []string) error {
 			fmt.Fprintln(os.Stderr, "qilla: that step failed; run it by hand:", line)
 		}
 	}
-	// user-level status line → qilla statusline (the only user-level touch, and it is qilla's)
+	// Claude Code copied the plugin into its cache and dropped the symlinks on the
+	// way: redo that copy dereferenced, or the vault skills are invisible.
 	home, _ := os.UserHomeDir()
+	if paths, err := plugin.RefreshCache(dir, filepath.Join(home, ".claude", "plugins")); err != nil {
+		fmt.Fprintln(os.Stderr, "qilla: refreshing Claude Code's plugin cache:", err)
+	} else {
+		for _, p := range paths {
+			fmt.Println("cache refreshed", p)
+		}
+	}
+	// user-level status line → qilla statusline (the only user-level touch, and it is qilla's)
 	sp := filepath.Join(home, ".claude", "settings.json")
 	var settings map[string]any
 	if b, err := os.ReadFile(sp); err == nil {
@@ -246,7 +258,8 @@ func pluginUsage(cfg *config.Config, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	rows, err := plugin.Usage(cfg.PluginDirs(), claudeJSONPath)
+	// one plugin now: the vault skills are symlinked into it, so it is the only dir to read
+	rows, err := plugin.Usage([]string{plugin.Dir(filepath.Dir(cfg.Path))}, claudeJSONPath)
 	if err != nil {
 		return err
 	}

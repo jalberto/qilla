@@ -83,7 +83,7 @@ Then talk to it: `qilla chat` opens Claude Code in the vault as your agent — p
 | **secrets** | `qilla secret set <name>` encrypts with `systemd-creds`; **every gather gets `QILLA_SECRETS_DIR`, one 0600 file per secret** — under the timer/queue path it is systemd's `$CREDENTIALS_DIRECTORY` (`LoadCredentialEncrypted=` in the unit), under `qilla run` from a terminal qilla decrypts the store into a private dir (`$XDG_RUNTIME_DIR/qilla/secrets/<routine>-*`, tmpfs) and removes it when the gather ends. The mount holds the secrets the bundle's `routine.toml` declares (`[requires].secrets` + `[[optional]].secrets`), or every stored secret when the bundle has no manifest. The model never sees them: the dir is scrubbed from its env and denied in its sandbox |
 | **statusline** | qilla's own status bar in about 5 ms: model · weekly usage · context · failing checks · reminders due · open questions · today's jots |
 | **web chat** | one embedded HTML page over SSE (Chat, Jobs, Today, Cost, Status), bcrypt password from `qilla passwd`, bound to loopback; publish it with Tailscale |
-| **plugin / skills** | `qilla plugin install` materialises hooks, the `qilla:routine`/`qilla:research` skills and sub-agents for Claude Code; `[plugins].dirs` loads your own vault plugins into qilla's spawns only |
+| **plugin / skills** | `qilla plugin install` materialises hooks, the `qilla:routine`/`qilla:research` skills and sub-agents for Claude Code; `[plugins].dirs` folds your own vault skills, agents and hooks into that same plugin (symlinks + a merged `hooks.json`), so Claude Code lists one plugin, not several |
 
 ## Architecture
 

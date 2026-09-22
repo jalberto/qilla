@@ -24,7 +24,7 @@ func TestEnsureWritesMissingNeverOverwrites(t *testing.T) {
 	if b, _ := os.ReadFile(cfg.VaultPath("Qilla/Persona.md")); string(b) != "MY PERSONA" {
 		t.Fatal("existing persona must not be overwritten")
 	}
-	for _, rel := range []string{"Qilla/Qilla.md", "Qilla/Rules.md", "Qilla/Research/default.md", "Qilla/Subagents/Subagents.md", ".claude/settings.json", "Qilla/Routines/r1/gather.sh", "Qilla/Routines/r1/template.md", "Qilla/Routines/r2/prompt.md", "Qilla/Plugin/.claude-plugin/plugin.json", "Qilla/Plugin/hooks/hooks.json"} {
+	for _, rel := range []string{"Qilla/Qilla.md", "Qilla/Rules.md", "Qilla/Research/default.md", "Qilla/Subagents/Subagents.md", ".claude/settings.json", "Qilla/Routines/r1/gather.sh", "Qilla/Routines/r1/template.md", "Qilla/Routines/r2/prompt.md", "Qilla/Plugin/hooks/hooks.json"} {
 		if _, err := os.Stat(cfg.VaultPath(rel)); err != nil {
 			t.Fatalf("missing %s", rel)
 		}
@@ -34,6 +34,9 @@ func TestEnsureWritesMissingNeverOverwrites(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "cfg", "statusline.sh")); err != nil {
 		t.Fatal("statusline")
+	}
+	if _, err := os.Stat(cfg.VaultPath("Qilla/Plugin/.claude-plugin/plugin.json")); err == nil {
+		t.Fatal("user plugin dirs must not get a manifest any more")
 	}
 	if again := Ensure(cfg); len(again) != 0 {
 		t.Fatalf("second run must be a no-op: %v", again)

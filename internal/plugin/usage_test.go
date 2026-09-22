@@ -91,3 +91,32 @@ func TestUsageSkipsMissingDirsAndBrokenClaudeJSON(t *testing.T) {
 		t.Fatalf("%v %+v", err, rows)
 	}
 }
+
+// The vault skills were counted under "killa:<skill>" before they were merged
+// into the qilla plugin; that history must follow them, symlinks included.
+func TestUsageCountsLegacyKillaKeysAndSymlinkedSkills(t *testing.T) {
+	root := t.TempDir()
+	vault := writePlugin(t, root, "vault", "", "brief")
+	dir := writePlugin(t, root, "Plugin", "qilla", "learn")
+	if err := os.Symlink(filepath.Join(vault, "skills", "brief"), filepath.Join(dir, "skills", "brief")); err != nil {
+		t.Fatal(err)
+	}
+	cj := writeClaudeJSON(t, root, map[string]any{
+		"killa:brief": map[string]any{"usageCount": 5, "lastUsedAt": 1756000000000},
+		"qilla:brief": map[string]any{"usageCount": 2, "lastUsedAt": 1757000000000},
+	})
+	rows, err := Usage([]string{dir}, cj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]SkillUse{}
+	for _, r := range rows {
+		got[r.Skill] = r
+	}
+	if len(got) != 2 {
+		t.Fatalf("both the embedded and the symlinked skill must be listed: %+v", rows)
+	}
+	if b := got["brief"]; b.Uses != 7 || b.Name != "qilla:brief" || b.Last != "2025-09-04" {
+		t.Fatalf("killa history must fold into qilla:brief, got %+v", b)
+	}
+}
