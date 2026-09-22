@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"time"
 
 	"encoding/json"
@@ -15,9 +16,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/jalberto/qilla/internal/config"
+	"github.com/jalberto/qilla/internal/install"
 	"github.com/jalberto/qilla/internal/plugin"
 	"github.com/jalberto/qilla/internal/subagents"
 )
@@ -30,7 +33,9 @@ type hookInput struct {
 		FilePath string `json:"file_path"`
 		Limit    any    `json:"limit"`
 	} `json:"tool_input"`
-	StopHookActive bool `json:"stop_hook_active"`
+	StopHookActive bool   `json:"stop_hook_active"`
+	SessionID      string `json:"session_id"`
+	TranscriptPath string `json:"transcript_path"`
 }
 
 func readHook() (hookInput, []byte) {
@@ -159,23 +164,75 @@ func cmdHook(args []string) error {
 		}
 		emit(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "SessionStart", "additionalContext": strings.Join(parts, "\n")}})
 	case "stop":
-		if in.StopHookActive || cfg.Hooks.Stop == "" {
-			emit(map[string]any{})
+		if in.StopHookActive {
+			emit(map[string]any{}) // already continuing from a block: let it stop
 			return nil
 		}
-		c := exec.Command("sh", "-c", cfg.Hooks.Stop)
-		c.Dir = in.Cwd
-		c.Stdin = strings.NewReader(string(raw))
-		out, _ := c.Output()
-		if t := strings.TrimSpace(string(out)); t != "" {
-			fmt.Println(t)
-		} else {
-			emit(map[string]any{})
+		block := learnDue(cfg, in)
+		if cfg.Hooks.Stop != "" {
+			c := exec.Command("sh", "-c", cfg.Hooks.Stop)
+			c.Dir = in.Cwd
+			c.Stdin = strings.NewReader(string(raw))
+			out, _ := c.Output()
+			if t := strings.TrimSpace(string(out)); t != "" && !block {
+				fmt.Println(t) // the native block wins: only one decision may be printed
+				return nil
+			}
 		}
+		if block {
+			emit(map[string]any{"decision": "block", "reason": learnReason})
+			return nil
+		}
+		emit(map[string]any{})
 	default:
 		emit(map[string]any{})
 	}
 	return nil
+}
+
+const learnReason = `Run qilla:learn. Reply with a single line: "✓ learn: <what changed>" or "✓ nothing to learn".`
+
+// learnMarker is where the last checkpointed tool-call count of a session lives.
+func learnMarker(cfg *config.Config, sid string) string {
+	return filepath.Join(cfg.StateDir, "hooks", "learn-"+sid)
+}
+
+// learnDue reports whether enough new tool calls happened since the last
+// checkpoint to be worth a qilla:learn pass, and checkpoints when it does.
+// Best effort: anything unreadable means "not due".
+func learnDue(cfg *config.Config, in hookInput) bool {
+	every := cfg.Hooks.LearnEvery
+	if every <= 0 || in.SessionID == "" || in.TranscriptPath == "" {
+		return false
+	}
+	f, err := os.Open(in.TranscriptPath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	count := 0
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 8<<20)
+	for sc.Scan() {
+		if strings.Contains(sc.Text(), `"type":"tool_use"`) {
+			count++
+		}
+	}
+	marker := learnMarker(cfg, in.SessionID)
+	last := 0
+	if b, err := os.ReadFile(marker); err == nil {
+		last, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+	}
+	if count-last < every {
+		return false
+	}
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		return false
+	}
+	if err := os.WriteFile(marker, []byte(strconv.Itoa(count)+"\n"), 0o644); err != nil {
+		return false
+	}
+	return true
 }
 
 // cmdStatusline lives in statusline.go.
@@ -294,6 +351,22 @@ func pluginUsage(cfg *config.Config, args []string) error {
 	return nil
 }
 
+// staleQmdIndex reports whether any qmd index file under ~/.cache/qmd is older
+// than a day (the shell hook's `find -mtime +1`).
+func staleQmdIndex(now time.Time) bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	paths, _ := filepath.Glob(filepath.Join(home, ".cache", "qmd", "*.sqlite*"))
+	for _, p := range paths {
+		if fi, err := os.Stat(p); err == nil && now.Sub(fi.ModTime()) > 24*time.Hour {
+			return true
+		}
+	}
+	return false
+}
+
 // sessionSignals are the cheap, in-process lines a session should open with:
 // reminders that are due, judge candidates waiting, and other interactive
 // sessions already in this vault. Every one is best-effort: a failure is
@@ -325,6 +398,43 @@ func sessionSignals(cfg *config.Config) []string {
 			fams = append(fams, fmt.Sprintf("%s %d", c.Family, c.N))
 		}
 		out = append(out, "\u2696 judge queue: "+strings.Join(fams, ", "))
+	}
+
+	// what changed since this agent last caught up (in-process: qilla owns the bookmark)
+	var buf bytes.Buffer
+	if err := runCatchup(cfg, &buf, false); err == nil {
+		if first, _, _ := strings.Cut(buf.String(), "\n"); strings.TrimSpace(first) != "" {
+			out = append(out, strings.TrimSpace(first)+" (qilla catchup --all for the rows).")
+		}
+	}
+
+	// today's daily note
+	today := time.Now().In(loc).Format("2006-01-02")
+	if _, err := os.Stat(filepath.Join(cfg.VaultPath(cfg.JournalDir), today+".md")); err != nil {
+		out = append(out, fmt.Sprintf("Today's daily note (%s) does not exist yet.", today))
+	}
+
+	// harness files `qilla init` scaffolds
+	var missing []string
+	for _, f := range install.VaultScaffold(cfg) {
+		if _, err := os.Stat(cfg.VaultPath(f.Path)); err != nil {
+			missing = append(missing, f.Path)
+		}
+	}
+	if len(missing) > 0 {
+		out = append(out, "MISSING harness files: "+strings.Join(missing, " ")+"  — run `qilla init`")
+	}
+
+	// qmd index freshness: stale → say so, and refresh it detached
+	if staleQmdIndex(time.Now()) {
+		out = append(out, "qmd index is >1 day old — run 'qmd update' before recall-heavy work.")
+		if _, err := exec.LookPath("qmd"); err == nil {
+			c := exec.Command("qmd", "update")
+			c.Stdout, c.Stderr, c.Stdin = nil, nil, nil
+			if err := c.Start(); err == nil {
+				go c.Wait() // detached: never block the session on the index
+			}
+		}
 	}
 
 	// other interactive claude sessions in this vault (this one does not count)

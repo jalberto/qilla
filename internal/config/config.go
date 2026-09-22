@@ -184,7 +184,14 @@ type Guard struct {
 type Hooks struct {
 	SessionStart string `toml:"session_start"` // extra command whose stdout is appended to the session context
 	Stop         string `toml:"stop"`          // extra command run at Stop (e.g. a learn reminder); empty = nothing
+	// LearnEvery is the native Stop hook's threshold: after this many new tool
+	// calls since the last checkpoint the session is blocked once and asked to
+	// run qilla:learn. 0 disables it; unset means DefaultLearnEvery.
+	LearnEvery int `toml:"learn_every"`
 }
+
+// DefaultLearnEvery is [hooks] learn_every when the key is absent.
+const DefaultLearnEvery = 15
 
 // Health is the stack watch: systemd user units that must not be failed and
 // artifacts that must stay fresh (each entry "<vault-relative path>=<spec>",
@@ -287,6 +294,9 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config %s: unknown keys: %v", path, undecoded)
 	}
 	c.Path = path
+	if !md.IsDefined("hooks", "learn_every") {
+		c.Hooks.LearnEvery = DefaultLearnEvery
+	}
 	c.applyDefaults()
 	if err := c.Validate(); err != nil {
 		return nil, fmt.Errorf("config %s: %w", path, err)

@@ -45,6 +45,26 @@ You plan meals…
 Built-ins: ` + "`researcher`" + ` (tier research) and ` + "`triager`" + ` (tier classify). A file with the same name replaces the built-in.
 `
 
+// VaultFile is one vault file `qilla init` scaffolds: the single source both
+// Ensure (which writes it when missing) and the session-start hook (which
+// reports it when missing) read.
+type VaultFile struct {
+	Path string // vault-relative
+	Body string
+}
+
+// VaultScaffold is the harness every session expects in the vault.
+func VaultScaffold(cfg *config.Config) []VaultFile {
+	return []VaultFile{
+		{"Qilla/Qilla.md", DefaultIndex},
+		{cfg.Persona, DefaultPersona},
+		{cfg.Rules, DefaultRules},
+		{"Qilla/Research/default.md", DefaultResearchPreset},
+		{"Qilla/Subagents/Subagents.md", SubagentsReadme},
+		{".claude/settings.json", VaultSettings},
+	}
+}
+
 // Ensure writes every missing default for a loaded config: vault files
 // (index, persona, rules, Qilla folders, research preset, sub-agents readme,
 // plugin skeleton, per-routine scaffold, user hooks, project Claude settings),
@@ -68,12 +88,9 @@ func Ensure(cfg *config.Config) []string {
 		for _, d := range []string{"Qilla", "Qilla/Routines", "Qilla/Subagents", "Qilla/Research"} {
 			os.MkdirAll(cfg.VaultPath(d), 0o755)
 		}
-		w(cfg.VaultPath("Qilla/Qilla.md"), DefaultIndex, 0o644)
-		w(cfg.VaultPath(cfg.Persona), DefaultPersona, 0o644)
-		w(cfg.VaultPath(cfg.Rules), DefaultRules, 0o644)
-		w(cfg.VaultPath("Qilla/Research/default.md"), DefaultResearchPreset, 0o644)
-		w(cfg.VaultPath("Qilla/Subagents/Subagents.md"), SubagentsReadme, 0o644)
-		w(cfg.VaultPath(".claude/settings.json"), VaultSettings, 0o644)
+		for _, f := range VaultScaffold(cfg) {
+			w(cfg.VaultPath(f.Path), f.Body, 0o644)
+		}
 		// every configured routine has the files its kind needs
 		for name, r := range cfg.Routines {
 			rd := cfg.VaultPath(filepath.Join("Qilla", "Routines", name))

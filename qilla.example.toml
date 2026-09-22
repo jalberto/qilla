@@ -80,9 +80,14 @@ read_max_lines = 400                    # whole-file Read above this is denied: 
 # watched_services = ["qilla.socket", "qilla-engram.service", "qilla-reconcile.timer"]   # systemd --user units that must never be `failed` (a missing unit counts as failed too)
 # freshness = ["Desk/Briefings/Today.md=daily@09:30", "git@backup=7d"]   # artifacts that must stay recent: path=daily@HH:MM | path=Nh | path=Nd | git@<remote>=Nd (unpushed commits)
 
-[hooks]                                 # your own extensions, called after qilla's hooks
-# session_start = "~/.mytools/session-context.sh"   # stdout appended to the session context
-# stop = "~/.mytools/learn-reminder.sh"             # run at Stop
+[hooks]                                 # qilla's own SessionStart/Stop hooks are native and always on:
+                                        # SessionStart prints the catchup header, a missing daily note, missing
+                                        # `qilla init` harness files and a qmd index older than a day (and
+                                        # refreshes it in the background); Stop asks for a qilla:learn pass
+                                        # after learn_every new tool calls. Both only in the vault, never under QILLA_RUN.
+learn_every = 15                        # tool calls since the last checkpoint before Stop blocks once; 0 = off
+# session_start = "~/.mytools/session-context.sh"   # optional extra: stdout appended to the session context (empty by default)
+# stop = "~/.mytools/learn-reminder.sh"             # optional extra: run at Stop after the native part (empty by default)
 
 [artifacts]                             # HTML runs/chats produce for the page (charts, tables, previews)
 ttl_days = 30
