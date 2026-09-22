@@ -149,6 +149,11 @@ type Openings struct {
 type Browser struct {
 	Headless string `toml:"headless"` // CLI, default agent-browser
 	Headed   string `toml:"headed"`   // command with %u (url) and %p (profile dir); empty = no handoff
+	// Profile, Session and Class are the agent-browser identity `qilla fetch`
+	// climbs the ladder with (rungs 3 and 4).
+	Profile string `toml:"profile"` // agent-browser --profile, default ~/.local/share/qilla/browser-profiles/qilla
+	Session string `toml:"session"` // agent-browser --session, default qilla
+	Class   string `toml:"class"`   // headed window class (--args --class=…), default qilla-browser
 }
 
 // Artifacts are HTML files runs and chats produce for the page.
@@ -343,6 +348,10 @@ func (c *Config) applyDefaults() {
 	defInt(&c.Memory.PromoteDays, 14)
 	defInt(&c.Memory.ConflictAutoDays, 7)
 	defInt(&c.Memory.ConsolidateDryRuns, 3)
+	def(&c.Browser.Profile, "~/.local/share/qilla/browser-profiles/qilla")
+	c.Browser.Profile = Expand(c.Browser.Profile)
+	def(&c.Browser.Session, "qilla")
+	def(&c.Browser.Class, "qilla-browser")
 	def(&c.Deciders.LemonadeURL, decide.DefaultLemonadeURL)
 	def(&c.Deciders.AskModel, decide.DefaultAskModel)
 	def(&c.Deciders.PolicyVersion, decide.DefaultPolicyVersion)

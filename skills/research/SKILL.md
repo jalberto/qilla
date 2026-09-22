@@ -18,6 +18,7 @@ Generic flow; the vault decides what a verdict means (presets) and where notes g
 
 ## 2. Fan out
 - One **researcher** sub-agent per angle, in parallel, each with ONE focused question and the retrieval date. Read-only. They return findings + sources; they never write.
+- Fetch pages with `qilla fetch <url>`; it climbs the ladder and classifies the page itself. Only if it exits 3 report the kind (blocked/login) and try hister/karakeep mirrors.
 - Keep it to what the question needs (2–5 agents). Cost is the constraint: the `research` tier, not the chief's model.
 
 ## 3. Synthesize
