@@ -49,6 +49,12 @@ func cmdCatchup(args []string) error {
 	if err != nil {
 		return err
 	}
+	return runCatchup(cfg, os.Stdout, *all)
+}
+
+// runCatchup is the catchup body: scan, print, move the bookmark. The
+// session-start hook calls it in-process instead of shelling out.
+func runCatchup(cfg *config.Config, out io.Writer, all bool) error {
 	loc := time.Local
 	if cfg.Timezone != "" {
 		if l, err := time.LoadLocation(cfg.Timezone); err == nil {
@@ -72,13 +78,13 @@ func cmdCatchup(args []string) error {
 		return err
 	}
 
-	res := catchup.Scan(cfg.Vault, cfg.JournalDir, cfg.Questions, cfg.ReplyMarker, now, seen, *all)
+	res := catchup.Scan(cfg.Vault, cfg.JournalDir, cfg.Questions, cfg.ReplyMarker, now, seen, all)
 	state := agentState(cfg, q.DB(), agent)
 	var due []remind.Reminder
 	if rs, err := remind.Scan(cfg.Vault, loc); err == nil {
 		due = remind.DueNow(rs, now)
 	}
-	writeCatchup(os.Stdout, res, due, state, now, *all)
+	writeCatchup(out, res, due, state, now, all)
 	return st.Save(agent, now, res.LogSeen)
 }
 
