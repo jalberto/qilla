@@ -86,6 +86,9 @@ type Worker struct {
 	Mem    *mem.Store   // working memory; nil = disabled
 	OnRun  func(Record) // ledger hook; may be nil
 	Now    func() time.Time
+	// Sink, when set, receives each run's bookkeeping record in place of
+	// <state_dir>/runs/<job>.json. nil = the state dir. See RecordSink.
+	Sink RecordSink
 }
 
 // New prepares the worker's tables.
@@ -566,6 +569,12 @@ func (w *Worker) setSession(agent, id string) { w.sessions().Set(agent, id) }
 
 // save writes the record under <state_dir>/runs/<job>.json for the UI and debugging.
 func (w *Worker) save(rec Record) {
+	if w.Sink != nil {
+		if err := w.Sink.Save(rec); err != nil {
+			fmt.Fprintln(os.Stderr, "qilla: record sink:", err)
+		}
+		return
+	}
 	dir := filepath.Join(w.Cfg.StateDir, "runs")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return
