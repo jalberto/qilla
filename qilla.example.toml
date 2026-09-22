@@ -62,7 +62,7 @@ allowed_domains = ["api.anthropic.com", "wttr.in"]   # egress the sandbox permit
 headless = "agent-browser"              # profile per agent under state_dir/browser/<agent> (logins survive runs)
 headed = "brave-browser --app=%u --user-data-dir=%p"   # %u url, %p profile; any app-mode browser works; empty = no handoff (N100 without a display)
 
-[plugins]                               # your Claude Code plugins (skills, agents, hooks) loaded only into qilla's spawns — nothing user-wide
+[plugins]                               # your own skills, agents and hooks — merged into the single "qilla" Claude Code plugin by `qilla plugin install`
 dirs = ["Qilla/Plugin"]                 # vault-relative: put a .claude-plugin/plugin.json + skills/ there
 
 [guard]                                 # PreToolUse rails for interactive sessions in the vault (qilla plugin hooks)

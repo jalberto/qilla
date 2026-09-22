@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jalberto/qilla/internal/config"
+	"github.com/jalberto/qilla/internal/plugin"
 )
 
 // DefaultResearchPreset is written to <vault>/Qilla/Research/default.md when missing.
@@ -91,7 +92,9 @@ func Ensure(cfg *config.Config) []string {
 				w(filepath.Join(rd, "template.md"), RoutineTemplateMd(name, script), 0o644)
 			}
 		}
-		// user plugin dirs: a loadable skeleton
+		// user plugin dirs: skills/ + hooks/ only. No .claude-plugin/plugin.json:
+		// these dirs are no longer loaded as plugins of their own (that manifest
+		// existed for --plugin-dir), they are folded into qilla's plugin below.
 		for _, d := range cfg.Plugins.Dirs {
 			d = config.Expand(d)
 			if !filepath.IsAbs(d) {
@@ -99,7 +102,10 @@ func Ensure(cfg *config.Config) []string {
 			}
 			os.MkdirAll(filepath.Join(d, "skills"), 0o755)
 			os.MkdirAll(filepath.Join(d, "hooks"), 0o755)
-			w(filepath.Join(d, ".claude-plugin", "plugin.json"), PluginManifest, 0o644)
+			if m := filepath.Join(d, ".claude-plugin", "plugin.json"); os.Remove(m) == nil {
+				fmt.Fprintln(os.Stderr, "qilla: removed", m, "— that dir is merged into the qilla plugin, not loaded as one")
+				os.Remove(filepath.Join(d, ".claude-plugin")) // only succeeds when nothing else is left
+			}
 			w(filepath.Join(d, "hooks", "hooks.json"), PluginHooks, 0o644)
 		}
 	}
@@ -107,6 +113,23 @@ func Ensure(cfg *config.Config) []string {
 	for _, h := range []string{cfg.Hooks.SessionStart, cfg.Hooks.Stop} {
 		if f := strings.Fields(h); len(f) > 0 && filepath.IsAbs(f[0]) {
 			w(f[0], NoopHook, 0o755)
+		}
+	}
+	// one plugin: fold every [plugins].dirs entry into ~/.config/qilla/plugin
+	// (symlinked skills/agents, merged hooks) so Claude Code lists only "qilla".
+	if _, err := os.Stat(plugin.Dir(dir)); err == nil {
+		warn, err := plugin.Union(plugin.Dir(dir), cfg.PluginDirs())
+		for _, m := range warn {
+			fmt.Fprintln(os.Stderr, "qilla: "+m)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "qilla: plugin union:", err)
+		}
+		// Claude Code keeps its own copy of the plugin and its copy drops symlinks
+		if home, err := os.UserHomeDir(); err == nil {
+			if _, err := plugin.RefreshCache(plugin.Dir(dir), filepath.Join(home, ".claude", "plugins")); err != nil {
+				fmt.Fprintln(os.Stderr, "qilla: plugin cache:", err)
+			}
 		}
 	}
 	// statusline may be stale from an older version: refresh when it differs from the shipped one

@@ -21,6 +21,7 @@ import (
 	"github.com/jalberto/qilla/internal/manifest"
 	"github.com/jalberto/qilla/internal/mem"
 	"github.com/jalberto/qilla/internal/models"
+	"github.com/jalberto/qilla/internal/plugin"
 	"github.com/jalberto/qilla/internal/prices"
 	"github.com/jalberto/qilla/internal/render"
 	"github.com/jalberto/qilla/internal/subagents"
@@ -379,7 +380,13 @@ func Run(cfg *config.Config, loadErr error, env Env) []Check {
 
 	if len(cfg.Plugins.Dirs) > 0 {
 		if dirs := cfg.PluginDirs(); len(dirs) == len(cfg.Plugins.Dirs) {
-			add("plugins", true, false, strings.Join(dirs, ", ")+" (loaded per spawn only)")
+			// the dirs are not loaded as plugins any more: their skills are
+			// symlinked into the one qilla plugin, so a missing link is the failure.
+			if missing := unlinkedSkills(plugin.Dir(env.ConfigDir), dirs); len(missing) > 0 {
+				add("plugins", false, false, fmt.Sprintf("%d skill(s) not merged into the qilla plugin (%s) — run `qilla plugin install`", len(missing), strings.Join(missing, ", ")))
+			} else {
+				add("plugins", true, false, strings.Join(dirs, ", ")+" (merged into the qilla plugin)")
+			}
 		} else {
 			add("plugins", false, false, fmt.Sprintf("%d of %d plugin dirs missing: %v", len(cfg.Plugins.Dirs)-len(dirs), len(cfg.Plugins.Dirs), cfg.Plugins.Dirs))
 		}
@@ -961,4 +968,27 @@ func NextFire() func(routine string) time.Time {
 		}
 	}
 	return func(routine string) time.Time { return next[routine] }
+}
+
+// unlinkedSkills lists <dir>/skills/<name> entries with no symlink in the qilla
+// plugin: the union is stale and the skill is invisible to Claude Code.
+func unlinkedSkills(pluginDir string, dirs []string) []string {
+	var out []string
+	for _, d := range dirs {
+		es, err := os.ReadDir(filepath.Join(d, "skills"))
+		if err != nil {
+			continue
+		}
+		for _, e := range es {
+			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+			link := filepath.Join(pluginDir, "skills", e.Name())
+			if tgt, err := os.Readlink(link); err != nil || tgt != filepath.Join(d, "skills", e.Name()) {
+				out = append(out, e.Name())
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }

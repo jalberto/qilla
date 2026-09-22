@@ -17,10 +17,9 @@ import (
 // Request is one headless turn.
 type Request struct {
 	Prompt           string
-	SystemPromptFile string   // file appended to Claude Code's system prompt (persona + rules): the cache-stable prefix
-	Agents           string   // --agents JSON (sub-agent definitions) or ""
-	PluginDirs       []string // --plugin-dir per entry: skills/hooks/agents loaded only into this spawn
-	SystemPrompt     string   // appended to Claude Code's system prompt (persona + rules): the cache-stable prefix
+	SystemPromptFile string // file appended to Claude Code's system prompt (persona + rules): the cache-stable prefix
+	Agents           string // --agents JSON (sub-agent definitions) or ""
+	SystemPrompt     string // appended to Claude Code's system prompt (persona + rules): the cache-stable prefix
 	Model            string
 	Effort           string // low | medium | high; empty = Claude Code's default
 	Resume           string // session id to resume; empty = fresh
@@ -109,9 +108,6 @@ func Run(ctx context.Context, bin string, req Request) (*Result, error) {
 	}
 	if req.Agents != "" {
 		args = append(args, "--agents", req.Agents)
-	}
-	for _, d := range req.PluginDirs {
-		args = append(args, "--plugin-dir", d)
 	}
 	if req.SessionID != "" && req.Resume == "" {
 		args = append(args, "--session-id", req.SessionID)

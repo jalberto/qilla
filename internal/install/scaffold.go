@@ -141,15 +141,8 @@ User space of the **qilla** runtime. Everything here is yours: qilla reads it, n
 Status, jobs and costs: ` + "`qilla status`" + ` or the web UI. Health: ` + "`qilla doctor`" + `.
 `
 
-// PluginManifest is the minimal .claude-plugin/plugin.json for a user plugin dir.
-const PluginManifest = `{
-  "name": "vault",
-  "description": "User-space skills, hooks and agents loaded only into qilla sessions.",
-  "version": "0.1.0"
-}
-`
-
-// PluginHooks is an empty hooks.json (qilla's own hooks come from its runtime plugin).
+// PluginHooks is an empty hooks.json for a user plugin dir: anything added here
+// is merged into the qilla plugin's own hooks.json by plugin.Union.
 const PluginHooks = "{\n  \"hooks\": {}\n}\n"
 
 // NoopHook is the default body for a configured but missing user hook script.

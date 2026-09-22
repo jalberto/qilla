@@ -146,9 +146,6 @@ func cmdChat(args []string) error {
 	if defs, err := subagents.Load(cfg.Vault, cfg.Models); err == nil && len(defs) > 0 {
 		argv = append(argv, "--agents", subagents.JSON(defs))
 	}
-	for _, d := range cfg.PluginDirs() {
-		argv = append(argv, "--plugin-dir", d)
-	}
 	if len(a.DisallowedTools) > 0 {
 		argv = append(argv, "--disallowedTools", strings.Join(a.DisallowedTools, ","))
 	}

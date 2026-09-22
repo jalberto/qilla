@@ -252,7 +252,7 @@ func (w *Worker) run(ctx context.Context, j *queue.Job, rec *Record) error {
 	if defs, err := subagents.Load(w.Cfg.Vault, w.Cfg.Models); err == nil && len(defs) > 0 {
 		agentsJSON = subagents.JSON(defs)
 	}
-	req := claude.Request{Prompt: p.Dynamic, SystemPromptFile: spf, Agents: agentsJSON, PluginDirs: w.Cfg.PluginDirs(), Model: model, Effort: choice.Effort, AllowedTools: tools, DisallowedTools: deny, Workdir: w.Cfg.Vault, MCPConfig: w.Cfg.MCPConfig(),
+	req := claude.Request{Prompt: p.Dynamic, SystemPromptFile: spf, Agents: agentsJSON, Model: model, Effort: choice.Effort, AllowedTools: tools, DisallowedTools: deny, Workdir: w.Cfg.Vault, MCPConfig: w.Cfg.MCPConfig(),
 		Env: []string{"QILLA_RUN=1", "QILLA_ROUTINE=" + j.Routine, "QILLA_AGENT=" + r.Agent}}
 	switch sf, err := w.settingsFile(j.Routine, r); {
 	case err == nil:

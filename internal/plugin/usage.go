@@ -74,17 +74,22 @@ func Usage(dirs []string, claudeJSON string) ([]SkillUse, error) {
 			continue
 		}
 		for _, e := range es {
-			if !e.IsDir() {
+			// Stat, not e.IsDir(): a vault skill folded into the plugin is a symlink.
+			if fi, err := os.Stat(filepath.Join(dir, "skills", e.Name())); err != nil || !fi.IsDir() {
 				continue
 			}
-			qualified, bare := u[name+":"+e.Name()], u[e.Name()]
+			// the vault skills were counted under the old "killa:" plugin name
+			// until they were merged into this one: same skill, same history.
+			qualified, bare, legacy := u[name+":"+e.Name()], u[e.Name()], u["killa:"+e.Name()]
 			last := qualified.LastUsedAt
-			if bare.LastUsedAt > last {
-				last = bare.LastUsedAt
+			for _, o := range []int64{bare.LastUsedAt, legacy.LastUsedAt} {
+				if o > last {
+					last = o
+				}
 			}
 			out = append(out, SkillUse{
 				Plugin: name, Skill: e.Name(), Name: name + ":" + e.Name(),
-				Uses: qualified.UsageCount + bare.UsageCount, Last: fmtDate(last),
+				Uses: qualified.UsageCount + bare.UsageCount + legacy.UsageCount, Last: fmtDate(last),
 			})
 		}
 	}
