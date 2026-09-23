@@ -194,12 +194,18 @@ func gitRaw(ctx context.Context, dir string, args ...string) (string, bool) {
 	return string(out), true
 }
 
+// RemoteCommand is what the agent asks the engine to run. A non-interactive
+// ssh shell does not get the user's PATH (mise shims, ~/.local/bin), so the
+// binary is looked up and then tried at its default install path before
+// giving up — this is why it is a shell snippet and not a plain argv.
+const RemoteCommand = `if command -v qilla >/dev/null 2>&1; then exec qilla engine status --json; else exec "$HOME/.local/bin/qilla" engine status --json; fi`
+
 // Remote runs `qilla engine status --json` on host over ssh (BatchMode: never
 // prompts) and decodes it. Any failure is an *UnreachableError.
 func Remote(ctx context.Context, host string) (*Status, error) {
 	ctx, cancel := context.WithTimeout(ctx, sshTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", host, "qilla", "engine", "status", "--json")
+	cmd := exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", host, RemoteCommand)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
