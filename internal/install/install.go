@@ -98,14 +98,17 @@ AccuracySec=1min
 [Install]
 WantedBy=timers.target
 `, r.Kind, cal.String())
+	// An agent has no supervisor to drain the jobs queue, so the timer runs
+	// the routine inline. --force: the index is host-local, the engine's own
+	// qmd-refresh run must not stop it.
 	u["qilla-qmd-refresh.service"] = fmt.Sprintf(`[Unit]
-Description=qilla enqueue qmd-refresh
+Description=qilla run qmd-refresh (agent host: inline, no queue)
 
 [Service]
 Type=oneshot
 %s
 ExecStart=%s
-`, env, exec("enqueue qmd-refresh"))
+`, env, exec("run --force qmd-refresh"))
 	return u
 }
 

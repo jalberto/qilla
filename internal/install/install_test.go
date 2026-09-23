@@ -150,6 +150,10 @@ func TestUnitsAgentRole(t *testing.T) {
 			t.Fatalf("agent missing %s", w)
 		}
 	}
+	// no supervisor on an agent: the service runs the routine inline, never enqueues
+	if svc := u["qilla-qmd-refresh.service"]; !strings.Contains(svc, "run --force qmd-refresh") || strings.Contains(svc, "enqueue") {
+		t.Fatalf("agent qmd-refresh service must run inline with --force, got:\n%s", svc)
+	}
 	// no qmd-refresh routine configured => no units at all
 	cfg.Routines = map[string]config.Routine{"brief": {Kind: "ai-fresh", Schedule: "*-*-* 08:30"}}
 	if u := Units(cfg, Paths{ConfigDir: "/h/.config/qilla", Qilla: "/q"}); len(u) != 0 {
