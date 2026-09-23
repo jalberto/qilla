@@ -26,12 +26,14 @@ var DefaultPersona string
 var DefaultRules string
 
 // MiseTomlTemplate pins the runtime tools next to qilla.toml (%s = engram version). Installed with
-// `mise install -C ~/.config/qilla`; units run through `mise exec` there.
+// `MISE_YES=1 mise install -C ~/.config/qilla`; units run through `mise exec` there.
 const MiseTomlTemplate = `# qilla runtime tools — install with:
-#   mise install -C ~/.config/qilla && mise exec -C ~/.config/qilla -- npm i -g knap @tobilu/qmd
-# (npm packages go through node's own npm: mise's npm backend prompts interactively as of 2026.9)
+#   MISE_YES=1 mise install -C ~/.config/qilla
+# (everything through mise, npm packages included; MISE_YES answers the npm backend's prompt)
 [tools]
 node = "24"
+"npm:@tobilu/qmd" = "latest"      # recall index (qmd-refresh, recall_cmd)
+"npm:knap" = "latest"             # routine output/template renderer
 "aqua:anthropics/claude-code" = "latest"
 "ubi:Gentleman-Programming/engram" = "%s"   # working-memory sidecar (memory.backend = "engram")
 "github:rtk-ai/rtk" = "0.49.0"   # token-saving shell proxy; the claude PreToolUse hook (rtk hook claude) needs it on the unit PATH
@@ -269,7 +271,7 @@ func WriteFile(path, body string, force bool) (bool, error) {
 // EnableCommands is what the user runs after init.
 func EnableCommands(units map[string]string, configDir string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "mise install -C %s && mise exec -C %s -- npm i -g knap @tobilu/qmd\n", configDir, configDir)
+	fmt.Fprintf(&b, "MISE_YES=1 mise install -C %s\n", configDir)
 	b.WriteString("systemctl --user daemon-reload\n")
 	extra := ""
 	if _, ok := units["qilla-engram.service"]; ok {

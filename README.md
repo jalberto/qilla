@@ -37,7 +37,7 @@ qilla init
 
 ```sh
 $EDITOR ~/.config/qilla/qilla.toml       # vault path, timezone, budgets, agents, routines
-mise install -C ~/.config/qilla && mise exec -C ~/.config/qilla -- npm i -g knap @tobilu/qmd
+MISE_YES=1 mise install -C ~/.config/qilla   # every runtime tool, qmd and knap included
 systemctl --user daemon-reload
 systemctl --user enable --now qilla.socket qilla-reconcile.timer   # init prints the full line
 loginctl enable-linger $USER

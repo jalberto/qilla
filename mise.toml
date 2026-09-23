@@ -1,4 +1,4 @@
 [tools]
 go = "1.27.1"
 node = "24"
-# knap: `mise exec -- npm i -g knap` (mise npm backend prompts interactively, see memory)
+"npm:knap" = "latest"   # template renderer used by tests/dev; MISE_YES=1 mise install

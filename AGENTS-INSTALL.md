@@ -67,8 +67,7 @@ It never overwrites an existing `qilla.toml` without `--force`. `qilla init --pr
 Then install the runtime tools the unit will see:
 
 ```sh
-mise install -C ~/.config/qilla
-mise exec -C ~/.config/qilla -- npm i -g knap @tobilu/qmd
+MISE_YES=1 mise install -C ~/.config/qilla   # every runtime tool through mise, qmd and knap included
 ```
 
 ## 3. Generate and enable the units
