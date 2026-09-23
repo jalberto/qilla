@@ -163,7 +163,9 @@ func cmdChat(args []string) error {
 		opening = pickOpening(cfg, sid != "" && usedToday(cfg, agent))
 	}
 	if opening != "" {
-		argv = append(argv, opening)
+		// "--" ends option parsing: --disallowedTools is variadic and would
+		// otherwise swallow the positional prompt as extra tool names.
+		argv = append(argv, "--", opening)
 	}
 	if choice.Degraded {
 		fmt.Fprintf(os.Stderr, "qilla: weekly usage %d%% — %s degraded to %s\n", choice.Usage, agent, choice.Model)
