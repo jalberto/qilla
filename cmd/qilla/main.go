@@ -72,16 +72,6 @@ func main() {
 			fmt.Fprintln(os.Stderr, "qilla:", err)
 			os.Exit(1)
 		}
-	case "lock":
-		if err := cmdLock(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "qilla:", err)
-			os.Exit(1)
-		}
-	case "unlock":
-		if err := cmdUnlock(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "qilla:", err)
-			os.Exit(1)
-		}
 	case "queue":
 		if err := cmdQueue(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "qilla:", err)
@@ -228,7 +218,7 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage: qilla <command>
 
-  init | doctor [--json] [--health [--count]] | doctor fix | passwd | new routine | routine check <name>|--all [--json] | secret | model | chat [agent] | ask "<text>" | enqueue | run | gather <routine> [--dry] | runs last <routine> | runs log [--routine r] [--days n] | serve | reconcile | status | task | lock <vault path> | unlock <vault path> | queue add|list|count|drop | remind add "<what>" --at "<YYYY-MM-DD [HH:MM]>" | remind list|due [--notify]|count|reset | catchup [--all] | note <path> [--section "<heading>"] [--tail N] | log "<text>" [--date YYYY-MM-DD] | config get <dotted.key> | config keys | sessions [--rotated] | sessions handoff [--agent a] [--set "<text>"] | mem | gmail auth|stage|staged|apply|untrash | browser | fetch <url> [--max-rung N] [--json] | artifact | plugin [install|usage [--unused] [--json]] | decide predict --task T | decide status | statusline | guard | hook | cost | prices sync | version`)
+  init | doctor [--json] [--health [--count]] | doctor fix | passwd | new routine | routine check <name>|--all [--json] | secret | model | chat [agent] | ask "<text>" | enqueue | run | gather <routine> [--dry] | runs last <routine> | runs log [--routine r] [--days n] | serve | reconcile | status | task | queue add|list|count|drop | remind add "<what>" --at "<YYYY-MM-DD [HH:MM]>" | remind list|due [--notify]|count|reset | catchup [--all] | note <path> [--section "<heading>"] [--tail N] | log "<text>" [--date YYYY-MM-DD] | config get <dotted.key> | config keys | sessions [--rotated] | sessions handoff [--agent a] [--set "<text>"] | mem | gmail auth|stage|staged|apply|untrash | browser | fetch <url> [--max-rung N] [--json] | artifact | plugin [install|usage [--unused] [--json]] | decide predict --task T | decide status | statusline | guard | hook | cost | prices sync | version`)
 }
 
 // firstRun makes sure the pieces exist before any command: a missing config is

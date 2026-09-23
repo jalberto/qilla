@@ -55,18 +55,18 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestRoleFor(t *testing.T) {
-	roles := map[string]string{"midori": "brain", "akane": "worker"}
+	roles := map[string]string{"midori": "engine", "akane": "agent"}
 	cases := []struct {
 		name     string
 		hostname string
 		roles    map[string]string
 		want     string
 	}{
-		{"empty table defaults to brain", "akane", nil, RoleBrain},
-		{"known worker", "akane", roles, RoleWorker},
-		{"known brain", "midori", roles, RoleBrain},
-		{"unknown host with non-empty table is worker", "unknown-host", roles, RoleWorker},
-		{"domain suffix stripped", "akane.example.com", roles, RoleWorker},
+		{"empty table defaults to engine", "akane", nil, RoleEngine},
+		{"known agent", "akane", roles, RoleAgent},
+		{"known engine", "midori", roles, RoleEngine},
+		{"unknown host with non-empty table is agent", "unknown-host", roles, RoleAgent},
+		{"domain suffix stripped", "akane.example.com", roles, RoleAgent},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -22,7 +22,7 @@ import (
 	"github.com/jalberto/qilla/internal/subagents"
 )
 
-// cmdChat: qilla chat [agent] [--tier t | --model m] [--new] [--rc] [--dir path] [opening…]
+// cmdChat: qilla chat [agent] [--tier t | --model m] [--new] [--dir path] [opening…]
 // The interactive launcher: runs claude in the vault as the agent, with the
 // persona as system prompt, the qilla badge, tools from the agent, the model
 // from tiers + weekly usage, resuming the agent's session unless --new.
@@ -31,8 +31,6 @@ func cmdChat(args []string) error {
 	tier := fs.String("tier", "", "override the agent's tier")
 	model := fs.String("model", "", "override the model outright")
 	fresh := fs.Bool("new", false, "start a new session instead of resuming the agent's")
-	rc := fs.Bool("rc", true, "Remote Control on (default from [chat].rc)")
-	noRC := fs.Bool("no-rc", false, "disable Remote Control for this session")
 	effort := fs.String("effort", "", "low | medium | high (default [chat].effort)")
 	dir := fs.String("dir", "", "working directory (default: the vault)")
 	agent := "chief"
@@ -92,17 +90,8 @@ func cmdChat(args []string) error {
 	case choice.Effort != "":
 		eff = choice.Effort // the tier's effort (coding → medium)
 	}
-	rcExplicit := false
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "rc" {
-			rcExplicit = true
-		}
-	})
-	rcDefault := cfg.Chat.RC == nil || *cfg.Chat.RC
-	if !cfg.IsBrain() && !rcExplicit {
-		rcDefault = false // worker: RC off unless --rc is passed explicitly
-	}
-	useRC := rcDefault && *rc && !*noRC
+	// RC only applies on the engine; an agent host never passes --rc.
+	useRC := cfg.IsEngine() && (cfg.Chat.RC == nil || *cfg.Chat.RC)
 	q, err := queue.Open(cfg.DBPath())
 	if err != nil {
 		return err

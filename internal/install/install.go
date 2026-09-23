@@ -55,17 +55,17 @@ type Paths struct {
 }
 
 // Units renders every systemd unit for cfg. Keys are file names.
-// A worker host only gets the qilla-qmd-refresh timer/service (when that
+// An agent host only gets the qilla-qmd-refresh timer/service (when that
 // routine is configured): no socket, no supervisor, no engram sidecar, no
 // reconcile, no other routine timers.
 func Units(cfg *config.Config, p Paths) map[string]string {
-	if !cfg.IsBrain() {
-		return workerUnits(cfg, p)
+	if !cfg.IsEngine() {
+		return agentUnits(cfg, p)
 	}
-	return brainUnits(cfg, p)
+	return engineUnits(cfg, p)
 }
 
-func workerUnits(cfg *config.Config, p Paths) map[string]string {
+func agentUnits(cfg *config.Config, p Paths) map[string]string {
 	u := map[string]string{}
 	r, ok := cfg.Routines["qmd-refresh"]
 	if !ok || strings.EqualFold(strings.TrimSpace(r.Schedule), "manual") {
@@ -109,7 +109,7 @@ ExecStart=%s
 	return u
 }
 
-func brainUnits(cfg *config.Config, p Paths) map[string]string {
+func engineUnits(cfg *config.Config, p Paths) map[string]string {
 	exec := func(args string) string {
 		if p.Mise != "" {
 			return fmt.Sprintf("%s -C %s exec -- %s %s", p.Mise, p.ConfigDir, p.Qilla, args)

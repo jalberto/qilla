@@ -29,10 +29,9 @@ import (
 type hookInput struct {
 	Cwd       string `json:"cwd"`
 	ToolInput struct {
-		Command      string `json:"command"`
-		FilePath     string `json:"file_path"`
-		NotebookPath string `json:"notebook_path"`
-		Limit        any    `json:"limit"`
+		Command  string `json:"command"`
+		FilePath string `json:"file_path"`
+		Limit    any    `json:"limit"`
 	} `json:"tool_input"`
 	StopHookActive bool   `json:"stop_hook_active"`
 	SessionID      string `json:"session_id"`
@@ -89,19 +88,6 @@ func cmdGuard(args []string) error {
 				return nil
 			}
 		}
-		if deny, reason := bashWriteGuard(cfg, cfg.Role(), cmd); deny {
-			decision("deny", "qilla guard: "+reason)
-			return nil
-		}
-	case "write":
-		p := in.ToolInput.FilePath
-		if p == "" {
-			p = in.ToolInput.NotebookPath
-		}
-		if deny, reason := writeGuard(cfg, cfg.Role(), shortHostname(), p, time.Now()); deny {
-			decision("deny", "qilla guard: "+reason)
-			return nil
-		}
 	case "read":
 		p := in.ToolInput.FilePath
 		if p == "" || in.ToolInput.Limit != nil || cfg.Guard.ReadMaxLines <= 0 {
@@ -154,8 +140,8 @@ func cmdHook(args []string) error {
 			}
 		}
 		parts = append(parts, sessionSignals(cfg)...)
-		if !cfg.IsBrain() {
-			parts = append(parts, "host role: worker — brain-owned files (Desk/Journal, Desk/Todo, Desk/Questions, Desk/Briefings, Qilla/Facts, Life/People, Qilla/Config, Qilla/Improvements, Qilla/Context) are written only via Qilla/Handoff/<host>.md")
+		if !cfg.IsEngine() {
+			parts = append(parts, "host role: agent — engine-owned files (Desk/Journal, Desk/Todo, Desk/Questions, Desk/Briefings, Qilla/Facts, Life/People, Qilla/Config, Qilla/Improvements, Qilla/Context) are written only via Qilla/Handoff/<host>.md")
 		}
 		if cfg.Hooks.SessionStart != "" {
 			c := exec.Command("sh", "-c", cfg.Hooks.SessionStart)

@@ -435,7 +435,7 @@ func Run(cfg *config.Config, loadErr error, env Env) []Check {
 
 	// units
 	if env.UnitActive != nil {
-		if cfg.IsBrain() {
+		if cfg.IsEngine() {
 			if env.UnitActive("qilla.socket") {
 				add("qilla.socket", true, false, "active")
 			} else {

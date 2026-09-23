@@ -69,7 +69,6 @@ func BaseHooks() map[string][]map[string]any {
 		"PreToolUse": {
 			{"matcher": "Bash", "hooks": []any{map[string]any{"type": "command", "command": "qilla guard bash", "timeout": 10}}},
 			{"matcher": "Read", "hooks": []any{map[string]any{"type": "command", "command": "qilla guard read", "timeout": 10}}},
-			{"matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": []any{map[string]any{"type": "command", "command": "qilla guard write", "timeout": 10}}},
 		},
 		"Stop": {{"hooks": []any{map[string]any{"type": "command", "command": "qilla hook stop", "timeout": 15}}}},
 	}
