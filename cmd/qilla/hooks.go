@@ -61,6 +61,28 @@ func decision(dec, reason string) {
 	emit(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PreToolUse", "permissionDecision": dec, "permissionDecisionReason": reason}})
 }
 
+// guardDecision applies the Bash guard rules (deny, then allow, then ask) to
+// cmd and returns the decision kind ("deny", "ask" or "" for no opinion) and
+// the reason to report alongside it.
+func guardDecision(g config.Guard, cmd string) (string, string) {
+	for _, pat := range g.Deny {
+		if re, err := regexp.Compile(pat); err == nil && re.MatchString(cmd) {
+			return "deny", "qilla guard: this command is on the deny list (" + pat + ")"
+		}
+	}
+	for _, pat := range g.Allow {
+		if re, err := regexp.Compile(pat); err == nil && re.MatchString(cmd) {
+			return "", ""
+		}
+	}
+	for _, pat := range g.Ask {
+		if re, err := regexp.Compile(pat); err == nil && re.MatchString(cmd) {
+			return "ask", "qilla guard: remote connection / guarded action — needs the user's explicit approval for THIS use. Do not look for workarounds."
+		}
+	}
+	return "", ""
+}
+
 // cmdGuard: qilla guard bash|read — PreToolUse rails (hook). Always prints valid JSON, always exits 0.
 func cmdGuard(args []string) error {
 	cfg, err := config.Load(config.DefaultPath())
@@ -76,17 +98,9 @@ func cmdGuard(args []string) error {
 			emit(map[string]any{})
 			return nil
 		}
-		for _, pat := range cfg.Guard.Deny {
-			if re, err := regexp.Compile(pat); err == nil && re.MatchString(cmd) {
-				decision("deny", "qilla guard: this command is on the deny list ("+pat+")")
-				return nil
-			}
-		}
-		for _, pat := range cfg.Guard.Ask {
-			if re, err := regexp.Compile(pat); err == nil && re.MatchString(cmd) {
-				decision("ask", "qilla guard: remote connection / guarded action — needs the user's explicit approval for THIS use. Do not look for workarounds.")
-				return nil
-			}
+		if dec, reason := guardDecision(cfg.Guard, cmd); dec != "" {
+			decision(dec, reason)
+			return nil
 		}
 	case "read":
 		p := in.ToolInput.FilePath

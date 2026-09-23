@@ -181,6 +181,7 @@ type Gmail struct {
 type Guard struct {
 	Scope        string   `toml:"scope"`          // vault (default: only when cwd is inside the vault) | all
 	Ask          []string `toml:"ask"`            // commands that need the user's explicit OK per use (default: ssh/scp/sftp/rsync-to-host)
+	Allow        []string `toml:"allow"`          // commands that skip the ask rails entirely (checked after deny, before ask)
 	Deny         []string `toml:"deny"`           // commands never allowed
 	ReadMaxLines int      `toml:"read_max_lines"` // whole-file Read above this is denied (default 400; 0 = off)
 }
