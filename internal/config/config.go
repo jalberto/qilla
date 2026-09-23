@@ -238,6 +238,16 @@ type Host struct {
 	Roles map[string]string `toml:"roles"`
 }
 
+// Engine is how an agent host asks the engine what it is doing.
+//
+// Host is the engine's ssh destination (e.g. "midori"): an agent runs
+// `ssh -o BatchMode=yes <host> qilla engine status --json`. Empty (the
+// default), or equal to this host's short name, means "read status locally";
+// `qilla run` on an agent host with no host set skips the pre-check.
+type Engine struct {
+	Host string `toml:"host"`
+}
+
 const (
 	RoleEngine = "engine"
 	RoleAgent  = "agent"
@@ -276,6 +286,7 @@ type Config struct {
 	Health        Health             `toml:"health"`
 	Deciders      Deciders           `toml:"deciders"`
 	Host          Host               `toml:"host"`
+	Engine        Engine             `toml:"engine"`
 	Agents        map[string]Agent   `toml:"agents"`
 	Routines      map[string]Routine `toml:"routines"`
 

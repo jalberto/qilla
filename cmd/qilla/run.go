@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/jalberto/qilla/internal/config"
+	"github.com/jalberto/qilla/internal/engine"
 	"github.com/jalberto/qilla/internal/ledger"
 	"github.com/jalberto/qilla/internal/mem"
 	"github.com/jalberto/qilla/internal/prices"
@@ -22,17 +23,12 @@ type runOpts struct {
 	once  bool // no-op; kept for scripts. Runs are always inline/synchronous.
 }
 
-// refusal is a `qilla run` refusal: one stderr line, exit 2.
-type refusal string
-
-func (r refusal) Error() string { return string(r) }
-
 // cmdRun: qilla run <routine> — execute one routine now, bypassing the queue
 // (debugging). The run is recorded like any other.
 func cmdRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	var o runOpts
-	fs.BoolVar(&o.force, "force", false, "run even when `qilla routine check` fails")
+	fs.BoolVar(&o.force, "force", false, "run even when `qilla routine check` fails, or (agent host) the engine is running it or ran it recently")
 	fs.BoolVar(&o.once, "once", false, "run inline (default; kept for scripts)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -45,13 +41,37 @@ func cmdRun(args []string) error {
 	if err != nil {
 		return err
 	}
-	err = runRoutine(cfg, args[0], o)
-	var r refusal
-	if errors.As(err, &r) {
-		fmt.Fprintln(os.Stderr, "qilla:", r)
-		os.Exit(2)
+	if !engineAllowsRun(cfg, args[0], o.force) {
+		return nil
 	}
-	return err
+	return runRoutine(cfg, args[0], o)
+}
+
+// engineAllowsRun is the agent-host pre-check (engine-agent §3): on an agent
+// whose [engine].host names another host, ask the engine first. It prints the
+// stop line (stdout) or the unreachable / vault-parity warnings (stderr) and
+// reports whether to run. The engine itself, and agents with no engine host
+// (or the engine host being this one), always run.
+func engineAllowsRun(cfg *config.Config, name string, force bool) bool {
+	if cfg.Engine.Host == "" || engine.IsLocal(cfg, engine.ShortHostname()) {
+		return true
+	}
+	ctx := context.Background()
+	st, err := engine.Remote(ctx, cfg.Engine.Host)
+	d := engine.Decide(name, st, err, force, cfg.Routines[name].Schedule == "manual", time.Now())
+	if d.Stop {
+		fmt.Println("qilla:", d.Msg)
+		return false
+	}
+	if d.Warn != "" {
+		fmt.Fprintln(os.Stderr, "qilla:", d.Warn)
+	}
+	if st != nil {
+		if line, ok := engine.Parity(st.Host, st.Vault, engine.VaultState(ctx, cfg.Vault)); !ok {
+			fmt.Fprintln(os.Stderr, "qilla:", line)
+		}
+	}
+	return true
 }
 
 // runRoutine runs one routine inline (no jobs queue, no qilla.socket).
