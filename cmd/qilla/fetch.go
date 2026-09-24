@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
+	"text/tabwriter"
 
 	"github.com/jalberto/qilla/internal/config"
 	"github.com/jalberto/qilla/internal/decide"
@@ -18,15 +21,20 @@ import (
 type errBlocked struct{ kind string }
 
 func (e errBlocked) Error() string {
-	return fmt.Sprintf("no content: last page was %s — try a hister/karakeep mirror", e.kind)
+	return fmt.Sprintf("no content: last page was %s — every rung tried, see --json", e.kind)
 }
 
-// cmdFetch: qilla fetch <url> [--max-rung N] [--json]
+const fetchUsage = "usage: qilla fetch <url> [--max-rung N] [--json] | qilla fetch --ledger | qilla fetch --forget <domain>\n" +
+	"  --max-rung N stops after position N of the chosen order (1 hister, 2 karakeep-lookup, 3.. the methods)"
+
+// cmdFetch: qilla fetch <url> [--max-rung N] [--json] | --ledger | --forget <domain>
 //
-// Climbs the web-research ladder (defuddle/curl → obscura --stealth →
-// agent-browser headless → agent-browser headed) and classifies each rung's
-// text with decide.PageKind, so a bot check or a block page escalates instead
-// of being reported as the page.
+// Climbs the web-research ladder: JA's own copies first (hister,
+// karakeep-lookup), then the methods (defuddle, curl, ladder, mirror,
+// obscura, karakeep-crawl, agent-browser headless, headed) starting where
+// the per-domain ledger — or, for an unknown domain, the fetch-route decider —
+// says. Each rung's text is classified with decide.PageKind, so a bot check
+// or a block page escalates instead of being reported as the page.
 func cmdFetch(args []string) error {
 	var (
 		url     string
@@ -37,6 +45,13 @@ func cmdFetch(args []string) error {
 		switch a := args[i]; a {
 		case "--json":
 			asJSON = true
+		case "--ledger":
+			return fetchLedgerPrint()
+		case "--forget":
+			if i+1 >= len(args) {
+				return fmt.Errorf("%w: --forget needs a domain", errUsage)
+			}
+			return fetchLedgerForget(args[i+1])
 		case "--max-rung":
 			if i+1 >= len(args) {
 				return fmt.Errorf("%w: --max-rung needs a number", errUsage)
@@ -48,13 +63,13 @@ func cmdFetch(args []string) error {
 			maxRung, i = n, i+1
 		default:
 			if url != "" || len(a) > 1 && a[0] == '-' {
-				return fmt.Errorf("%w: usage: qilla fetch <url> [--max-rung N] [--json]", errUsage)
+				return fmt.Errorf("%w: %s", errUsage, fetchUsage)
 			}
 			url = a
 		}
 	}
 	if url == "" {
-		return fmt.Errorf("%w: usage: qilla fetch <url> [--max-rung N] [--json]", errUsage)
+		return fmt.Errorf("%w: %s", errUsage, fetchUsage)
 	}
 	res, err := fetch.Fetch(context.Background(), url, fetchOptions(maxRung))
 	if err != nil {
@@ -78,17 +93,74 @@ func cmdFetch(args []string) error {
 	return nil
 }
 
-// fetchOptions wires the ladder from [browser] and [deciders]: a missing
-// config leaves the package defaults, and PageKind's model fallback traces
-// every verdict it makes with caller "fetch".
+// fetchLedgerPath is {state_dir}/fetch/ledger.json.
+func fetchLedgerPath() string {
+	stateDir := config.Expand("~/.local/state/qilla")
+	if cfg, err := config.Load(config.DefaultPath()); err == nil {
+		stateDir = cfg.StateDir
+	}
+	return fetch.LedgerFile(stateDir)
+}
+
+func fetchLedgerPrint() error {
+	l, err := fetch.LoadLedger(fetchLedgerPath())
+	if err != nil {
+		return err
+	}
+	domains := make([]string, 0, len(l))
+	for d := range l {
+		domains = append(domains, d)
+	}
+	sort.Strings(domains)
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "DOMAIN\tRUNG\tKIND\tOK\tFAIL\tLAST OK\tVIA")
+	for _, d := range domains {
+		e := l[d]
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%s\t%s\n", d, e.Rung, e.Kind, e.OKCount, e.FailCount, e.LastOK, e.LastVia)
+	}
+	return tw.Flush()
+}
+
+func fetchLedgerForget(domain string) error {
+	path := fetchLedgerPath()
+	l, err := fetch.LoadLedger(path)
+	if err != nil {
+		return err
+	}
+	d := fetch.Domain("https://" + domain)
+	if d == "" {
+		d = domain
+	}
+	if _, ok := l[d]; !ok {
+		return fmt.Errorf("fetch ledger: %s not recorded", d)
+	}
+	delete(l, d)
+	if err := l.Save(path); err != nil {
+		return err
+	}
+	fmt.Println("forgot", d)
+	return nil
+}
+
+// fetchOptions wires the ladder from [browser], [fetch] and [deciders]: a
+// missing config leaves the package defaults, and every decider call
+// (PageKind's fallback, the fetch-route choice) is traced.
 func fetchOptions(maxRung int) fetch.Options {
-	o := fetch.Options{MaxRung: maxRung}
+	o := fetch.Options{MaxRung: maxRung, HisterURL: fetch.DefaultHisterURL, LadderURL: fetch.DefaultLadderURL}
 	cfg, err := config.Load(config.DefaultPath())
 	if err != nil {
 		o.Ask = traceAsk("")
 		return o
 	}
 	o.Profile, o.Session, o.Class = cfg.Browser.Profile, cfg.Browser.Session, cfg.Browser.Class
+	o.HisterURL, o.LadderURL = cfg.Fetch.HisterURL, cfg.Fetch.LadderURL
+	o.Mirrors, o.Route = cfg.Fetch.MirrorTable(), cfg.Fetch.Route
+	o.LedgerPath = fetch.LedgerFile(cfg.StateDir)
+	if u := cfg.KarakeepURL(); u != "" {
+		if b, err := readSecret("karakeep"); err == nil {
+			o.KarakeepURL, o.KarakeepKey = u, strings.TrimSpace(string(b))
+		}
+	}
 	o.Ask = traceAsk(filepath.Join(cfg.StateDir, "deciders"))
 	return o
 }

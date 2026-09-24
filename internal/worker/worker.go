@@ -23,6 +23,7 @@ import (
 	"github.com/jalberto/qilla/internal/claude"
 	"github.com/jalberto/qilla/internal/config"
 	"github.com/jalberto/qilla/internal/decide"
+	"github.com/jalberto/qilla/internal/fetch"
 	"github.com/jalberto/qilla/internal/install"
 	"github.com/jalberto/qilla/internal/loader"
 	"github.com/jalberto/qilla/internal/manifest"
@@ -483,6 +484,11 @@ func (w *Worker) gatherStar(ctx context.Context, dir, name string, dry bool) (st
 		BrowserProfile: w.Cfg().Browser.Profile,
 		BrowserSession: w.Cfg().Browser.Session,
 		BrowserClass:   w.Cfg().Browser.Class,
+		Fetch: star.FetchEnv{
+			HisterURL: w.Cfg().Fetch.HisterURL, LadderURL: w.Cfg().Fetch.LadderURL,
+			Mirrors: w.Cfg().Fetch.MirrorTable(), Route: w.Cfg().Fetch.Route,
+			LedgerPath: fetch.LedgerFile(w.Cfg().StateDir),
+		},
 	}
 	// [capabilities] from the bundle's routine.toml scopes the side effects
 	// the script may have; no manifest ⇒ the frozen, pure runtime.

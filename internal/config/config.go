@@ -7,11 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/jalberto/qilla/internal/decide"
+	fetchpkg "github.com/jalberto/qilla/internal/fetch"
 	"github.com/jalberto/qilla/internal/models"
 )
 
@@ -156,6 +158,41 @@ type Browser struct {
 	Class   string `toml:"class"`   // headed window class (--args --class=…), default qilla-browser
 }
 
+// Fetch is `qilla fetch`'s ladder wiring. karakeep's URL is not here: it is
+// the existing routine setting `karakeep_url` (the key the `karakeep` secret
+// goes with), reused rather than duplicated.
+type Fetch struct {
+	HisterURL string            `toml:"hister_url"` // default http://127.0.0.1:4433
+	LadderURL string            `toml:"ladder_url"` // soft-paywall proxy, default http://nasdxp:8082
+	Mirrors   map[string]string `toml:"mirrors"`    // host → mirror host, merged over the built-in reddit → safereddit
+	Route     string            `toml:"route"`      // auto (ledger + decider) | default (fixed order, for debugging)
+}
+
+// MirrorTable is the built-in mirror table with [fetch] mirrors over it.
+func (f Fetch) MirrorTable() map[string]string {
+	m := fetchpkg.DefaultMirrors()
+	for k, v := range f.Mirrors {
+		m[k] = v
+	}
+	return m
+}
+
+// KarakeepURL is the first routine's `karakeep_url` setting (routines sorted
+// by name), "" when none sets it.
+func (c *Config) KarakeepURL() string {
+	names := make([]string, 0, len(c.Routines))
+	for n := range c.Routines {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		if u, ok := c.Routines[n].Settings["karakeep_url"].(string); ok && u != "" {
+			return u
+		}
+	}
+	return ""
+}
+
 // Artifacts are HTML files runs and chats produce for the page.
 type Artifacts struct {
 	TTLDays int   `toml:"ttl_days"` // default 30
@@ -278,6 +315,7 @@ type Config struct {
 	Models        models.Tiers       `toml:"models"`
 	Chat          Chat               `toml:"chat"`
 	Browser       Browser            `toml:"browser"`
+	Fetch         Fetch              `toml:"fetch"`
 	Artifacts     Artifacts          `toml:"artifacts"`
 	Guard         Guard              `toml:"guard"`
 	Gmail         Gmail              `toml:"gmail"`
@@ -411,6 +449,9 @@ func (c *Config) applyDefaults() {
 	c.Browser.Profile = Expand(c.Browser.Profile)
 	def(&c.Browser.Session, "qilla")
 	def(&c.Browser.Class, "qilla-browser")
+	def(&c.Fetch.HisterURL, fetchpkg.DefaultHisterURL)
+	def(&c.Fetch.LadderURL, fetchpkg.DefaultLadderURL)
+	def(&c.Fetch.Route, "auto")
 	def(&c.Deciders.LemonadeURL, decide.DefaultLemonadeURL)
 	def(&c.Deciders.AskModel, decide.DefaultAskModel)
 	def(&c.Deciders.PolicyVersion, decide.DefaultPolicyVersion)

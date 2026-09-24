@@ -159,6 +159,7 @@ Everything lives in one file, `~/.config/qilla/qilla.toml`, written by `qilla in
 | `[models]`, `[models.effort]` | tier → model mapping, the degradation ladder and `degrade_at` |
 | `[sandbox]` | Claude's Bash sandbox: `disabled`, `allowed_domains`, plus extra `bind_ro`/`bind_rw` for the unit |
 | `[browser]` | headless browser for routines, headed browser for handoff |
+| `[fetch]` | `qilla fetch` ladder: `hister_url` (default `http://127.0.0.1:4433`), `ladder_url` (default `http://nasdxp:8082`), `mirrors` (host → mirror, built-in reddit → safereddit.com), `route` (`auto` = per-domain ledger + fetch-route decider, `default` = fixed order); karakeep reuses the routine setting `karakeep_url` and the `karakeep` secret |
 | `[plugins]`, `[hooks]`, `[guard]` | your Claude Code plugin dirs, the native hooks' `learn_every` plus your own optional hook commands (empty by default), the PreToolUse rails |
 | `[health]` | `watched_services` and artifact `freshness` — what `qilla doctor --health` polices |
 | `[deciders]` | the local decision layer: `lemonade_url`, `ask_model`, `conf_floor`, `policy_version`; the remote route: `jev_enabled`, `jev_url` (default `https://api.typesafe.ai`), `jev_model` (default `jev-latest`), `jev_daily_max` (default 200) — the Jev token is the `jev_key` secret, `qilla secret set jev_key < file` |

@@ -3,24 +3,27 @@ package star
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/jalberto/qilla/internal/decide"
 	"github.com/jalberto/qilla/internal/fetch"
 	"go.starlark.net/starlark"
 )
 
-// bFetch is the `fetch(url, max_rung=4)` builtin: the web-research ladder in
+// bFetch is the `fetch(url, max_rung=0)` builtin: the web-research ladder in
 // one call. It returns the same dict `qilla fetch --json` prints —
-// {url, rung, kind, conf, via, chars, tried:[{rung, kind, ms[, note]}]} plus
-// `text` — and never raises for a blocked page: the script reads `kind`.
+// {url, rung, pos, kind, conf, via, chars, order, route,
+// tried:[{rung, pos, kind, ms[, note]}]} plus `text` (rung is the rung name,
+// max_rung a position in the chosen order) — and never raises for a blocked page: the script reads `kind`.
 //
 // It is read-only, but it spawns the ladder's tools, so it is gated exactly
 // like run(): with [capabilities] exec declared, each rung's binary must be on
 // the list or that rung is not attempted.
 //
-//	fetch("https://example.com") -> {url, rung, kind, conf, via, chars, text, tried}
+//	fetch("https://example.com") -> {url, rung, pos, kind, conf, via, chars, order, route, text, tried}
 func (r *runner) bFetch(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kw []starlark.Tuple) (starlark.Value, error) {
 	var url string
 	maxRung := 0
@@ -33,6 +36,19 @@ func (r *runner) bFetch(_ *starlark.Thread, b *starlark.Builtin, args starlark.T
 		Session: r.env.BrowserSession,
 		Class:   r.env.BrowserClass,
 		Ask:     r.pageKindAsk(),
+
+		HisterURL:  r.env.Fetch.HisterURL,
+		LadderURL:  r.env.Fetch.LadderURL,
+		Mirrors:    r.env.Fetch.Mirrors,
+		Route:      r.env.Fetch.Route,
+		LedgerPath: r.env.Fetch.LedgerPath,
+		// karakeep-crawl creates a bookmark: never on a dry run.
+		ReadOnly: r.env.DryRun,
+	}
+	if u, ok := r.env.Settings["karakeep_url"].(string); ok && u != "" && r.env.SecretsDir != "" {
+		if b, err := os.ReadFile(filepath.Join(r.env.SecretsDir, "karakeep")); err == nil {
+			o.KarakeepURL, o.KarakeepKey = u, strings.TrimSpace(string(b))
+		}
 	}
 	if c := r.env.Caps; c != nil && len(c.Exec) > 0 {
 		allowed := map[string]bool{}
@@ -82,7 +98,14 @@ func (r *runner) pageKindAsk() decide.PageKindAsk {
 func fetchDict(res fetch.Result) *starlark.Dict {
 	d := starlark.NewDict(8)
 	d.SetKey(starlark.String("url"), starlark.String(res.URL))
-	d.SetKey(starlark.String("rung"), starlark.MakeInt(res.Rung))
+	d.SetKey(starlark.String("rung"), starlark.String(res.Rung))
+	d.SetKey(starlark.String("pos"), starlark.MakeInt(res.Pos))
+	d.SetKey(starlark.String("route"), starlark.String(res.Route))
+	order := starlark.NewList(nil)
+	for _, n := range res.Order {
+		order.Append(starlark.String(n))
+	}
+	d.SetKey(starlark.String("order"), order)
 	d.SetKey(starlark.String("kind"), starlark.String(res.Kind))
 	d.SetKey(starlark.String("conf"), starlark.Float(res.Conf))
 	d.SetKey(starlark.String("via"), starlark.String(res.Via))
@@ -91,7 +114,8 @@ func fetchDict(res fetch.Result) *starlark.Dict {
 	tried := starlark.NewList(nil)
 	for _, t := range res.Tried {
 		e := starlark.NewDict(4)
-		e.SetKey(starlark.String("rung"), starlark.MakeInt(t.Rung))
+		e.SetKey(starlark.String("rung"), starlark.String(t.Rung))
+		e.SetKey(starlark.String("pos"), starlark.MakeInt(t.Pos))
 		e.SetKey(starlark.String("kind"), starlark.String(t.Kind))
 		e.SetKey(starlark.String("ms"), starlark.MakeInt(t.MS))
 		if t.Note != "" {

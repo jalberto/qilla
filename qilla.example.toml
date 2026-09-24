@@ -61,9 +61,15 @@ allowed_domains = ["api.anthropic.com", "wttr.in"]   # egress the sandbox permit
 [browser]                               # headless browsing for routines; handoff to a headed browser when a page needs a human
 headless = "agent-browser"              # profile per agent under state_dir/browser/<agent> (logins survive runs)
 headed = "brave-browser --app=%u --user-data-dir=%p"   # %u url, %p profile; any app-mode browser works; empty = no handoff (N100 without a display)
-profile = "~/.local/share/qilla/browser-profiles/qilla"  # agent-browser --profile for `qilla fetch` rungs 3-4 (logins survive)
+profile = "~/.local/share/qilla/browser-profiles/qilla"  # agent-browser --profile for `qilla fetch` headless/headed rungs (logins survive)
 session = "qilla"                       # agent-browser --session: one long-lived daemon, reused across fetches
 class = "qilla-browser"                 # headed window class (--args --class=…) so the WM can keep the window unfocused
+
+[fetch]                                 # `qilla fetch` ladder: hister → karakeep-lookup → methods; the karakeep URL is the routine setting karakeep_url + secret `karakeep`
+hister_url = "http://127.0.0.1:4433"    # rung hister: pages JA already visited
+ladder_url = "http://nasdxp:8082"       # rung ladder: soft-paywall proxy (/raw/<url>)
+route = "auto"                          # auto: per-domain ledger (state_dir/fetch/ledger.json), else ask the fetch-route decider | default: fixed order (debugging)
+# mirrors = { "reddit.com" = "safereddit.com" }   # rung mirror: host → mirror host, merged over the built-in reddit/redd.it → safereddit.com
 
 [plugins]                               # your own skills, agents and hooks — merged into the single "qilla" Claude Code plugin by `qilla plugin install`
 dirs = ["Qilla/Plugin"]                 # vault-relative: put a .claude-plugin/plugin.json + skills/ there

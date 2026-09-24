@@ -128,9 +128,21 @@ type Env struct {
 	// profile/session/class: the agent-browser identity fetch() climbs the
 	// ladder's upper rungs with. Empty = the fetch package defaults.
 	BrowserProfile, BrowserSession, BrowserClass string
+	// Fetch is [fetch] for fetch(): hister/ladder URLs, mirrors, route and
+	// the ledger path. Zero = hister and ladder skipped, no ledger. karakeep
+	// comes from Settings["karakeep_url"] and the `karakeep` secret.
+	Fetch FetchEnv
 	// AskConfig fills ask()'s backend wiring from [deciders] (Lemonade URL,
 	// model, floor, the jev route). nil = the package defaults.
 	AskConfig func(*decide.AskRequest)
+}
+
+// FetchEnv is the [fetch] wiring fetch() climbs with.
+type FetchEnv struct {
+	HisterURL, LadderURL string
+	Mirrors              map[string]string
+	Route                string
+	LedgerPath           string
 }
 
 // Run executes path and returns the gather result as plain Go values

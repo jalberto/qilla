@@ -46,7 +46,7 @@ func TestFetchBuiltinShape(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // no defuddle/curl/obscura/agent-browser
 	script := write(t, vault, "g.star", `
 def gather(ctx):
-    return {"r": fetch("https://example.invalid", max_rung=2)}
+    return {"r": fetch("https://example.invalid", max_rung=4)}
 `)
 	res, _, err := Run(context.Background(), script, env(vault))
 	if err != nil {
@@ -59,7 +59,7 @@ def gather(ctx):
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"url", "rung", "kind", "conf", "via", "chars", "tried", "text"} {
+	for _, k := range []string{"url", "rung", "pos", "kind", "conf", "via", "chars", "order", "route", "tried", "text"} {
 		if _, ok := got.R[k]; !ok {
 			t.Fatalf("missing key %q in %s", k, raw)
 		}
@@ -68,10 +68,10 @@ def gather(ctx):
 		t.Fatalf("url = %v", got.R["url"])
 	}
 	tried, _ := got.R["tried"].([]any)
-	if len(tried) != 2 {
-		t.Fatalf("tried = %v, want two skipped rungs", got.R["tried"])
+	if len(tried) != 4 {
+		t.Fatalf("tried = %v, want four skipped rungs", got.R["tried"])
 	}
-	first, _ := tried[0].(map[string]any)
+	first, _ := tried[2].(map[string]any) // defuddle; 0-1 are the lookups
 	if first["kind"] != "skipped" || !strings.Contains(first["note"].(string), "PATH") {
 		t.Fatalf("tried[0] = %#v, want a skipped rung with a PATH note", first)
 	}
