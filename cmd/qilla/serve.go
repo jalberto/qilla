@@ -34,7 +34,10 @@ func cmdServe(args []string) error {
 		return err
 	}
 	defer q.Close()
-	w, err := worker.New(cfg, q.DB())
+	// one holder for the whole process: the supervisor re-reads qilla.toml
+	// before each drain and the worker sees the same swap.
+	hold := config.NewHolder(cfg)
+	w, err := worker.New(hold, q.DB())
 	if err != nil {
 		return err
 	}
@@ -50,7 +53,7 @@ func cmdServe(args []string) error {
 		return err
 	}
 	w.OnRun = l.Record
-	s := serve.New(cfg, q, w, l)
+	s := serve.New(hold, q, w, l)
 	ls, err := serve.Listen(cfg, socketPath())
 	if err != nil {
 		return err
@@ -63,6 +66,15 @@ func cmdServe(args []string) error {
 		<-sig
 		s.Log("signal: finishing the current job, then exiting")
 		s.Stop()
+	}()
+	// SIGHUP is the explicit "re-read qilla.toml" trigger; it never stops the
+	// server, and it goes through the same path as the mtime check.
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	go func() {
+		for range hup {
+			hold.Force(s.Log)
+		}
 	}()
 	s.Log("qilla serve on %s (poke %s)", ls.HTTP.Addr(), ls.Poke.Addr())
 	return s.Run(ctx, ls)

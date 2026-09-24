@@ -30,7 +30,9 @@ var ui embed.FS
 
 // Server wires queue, worker and ledger behind HTTP and a poke socket.
 type Server struct {
-	Cfg      *config.Config
+	// Hold is the live config, shared with the worker: qilla.toml is re-read
+	// before each drain, so nothing here may cache a copy of it.
+	Hold     *config.Holder
 	Q        *queue.Store
 	W        *worker.Worker
 	L        *ledger.Store
@@ -53,13 +55,17 @@ type Listeners struct {
 	HTTP net.Listener
 }
 
+// Cfg is the config as of right now.
+func (s *Server) Cfg() *config.Config { return s.Hold.Get() }
+
 // New builds a server with defaults.
-func New(cfg *config.Config, q *queue.Store, w *worker.Worker, l *ledger.Store) *Server {
+func New(hold *config.Holder, q *queue.Store, w *worker.Worker, l *ledger.Store) *Server {
+	cfg := hold.Get()
 	idle, err := time.ParseDuration(cfg.Web.IdleExit)
 	if err != nil || idle <= 0 {
 		idle = 10 * time.Minute
 	}
-	s := &Server{Cfg: cfg, Q: q, W: w, L: l, IdleExit: idle, Now: time.Now,
+	s := &Server{Hold: hold, Q: q, W: w, L: l, IdleExit: idle, Now: time.Now,
 		Log: func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) },
 		hub: newHub(), wake: make(chan struct{}, 1), act: make(chan struct{}, 1), stop: make(chan struct{})}
 	s.Auth, err = auth.NewPersistent(cfg.Web.PasswordHash, !auth.IsLoopback(cfg.Web.Listen), filepath.Join(cfg.StateDir, "web-session.key"))
@@ -123,7 +129,7 @@ func (s *Server) Run(ctx context.Context, ls Listeners) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	lockPath := filepath.Join(s.Cfg.StateDir, "serve.lock")
+	lockPath := filepath.Join(s.Cfg().StateDir, "serve.lock")
 	unlock, err := tryLock(lockPath)
 	if err != nil {
 		return fmt.Errorf("another qilla serve holds %s", lockPath)
@@ -190,11 +196,14 @@ func (s *Server) touch() {
 }
 
 func (s *Server) drain(ctx context.Context) {
-	gate := s.L.Gate(s.Cfg, func(scope string, spent, cap float64) {
+	// a qilla.toml edit is picked up here, right before the jobs run: a routine
+	// added while the supervisor is up must not fail as "not in config".
+	s.Hold.Reload(s.Log)
+	gate := s.L.Gate(s.Cfg(), func(scope string, spent, cap float64) {
 		s.hub.publish("warn", fmt.Sprintf("budget warn: %s at %.2f (warn %.2f)", scope, spent, cap), nil)
 	})
 	attempts := func(r string) int {
-		if rt, ok := s.Cfg.Routines[r]; ok && rt.MaxAttempts > 0 {
+		if rt, ok := s.Cfg().Routines[r]; ok && rt.MaxAttempts > 0 {
 			return rt.MaxAttempts
 		}
 		return 3
@@ -217,7 +226,7 @@ func (s *Server) drain(ctx context.Context) {
 func (s *Server) gateWithEvents(g queue.Gate) queue.Gate {
 	return func(j *queue.Job, now time.Time) (bool, string, time.Time) {
 		// a spent five-hour window would only burn attempts: park until it resets
-		if u, at := models.FiveHour(s.Cfg.Models.UsageCache); u >= 98 && at.After(now) {
+		if u, at := models.FiveHour(s.Cfg().Models.UsageCache); u >= 98 && at.After(now) {
 			why := fmt.Sprintf("usage: five-hour window at %d%%, resumes %s", u, at.Local().Format("15:04"))
 			s.hub.publish("job", fmt.Sprintf("#%d %s waits: %s", j.ID, j.Routine, why), nil)
 			return false, why, at.Add(2 * time.Minute)

@@ -121,7 +121,7 @@ func (s *Server) ask(w http.ResponseWriter, r *http.Request) {
 	if in.Agent == "" {
 		in.Agent = "chief"
 	}
-	if _, ok := s.Cfg.Agents[in.Agent]; !ok {
+	if _, ok := s.Cfg().Agents[in.Agent]; !ok {
 		http.Error(w, "unknown agent", 400)
 		return
 	}
@@ -141,7 +141,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	byRoutine, _ := s.L.Summary(r.Context(), day, "routine")
 	byAgent, _ := s.L.Summary(r.Context(), day, "agent")
 	must := map[string]bool{}
-	for name, rt := range s.Cfg.Routines {
+	for name, rt := range s.Cfg().Routines {
 		if rt.MustRun {
 			must[name], _ = s.L.SucceededToday(r.Context(), day, name)
 		}
@@ -149,15 +149,15 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	// "subagents" is the sum over every configured agent's session: the Today
 	// tab reports machine-wide activity, not one conversation's.
 	subagents := 0
-	for agent := range s.Cfg.Agents {
+	for agent := range s.Cfg().Agents {
 		if sid := s.W.Session(agent); sid != "" {
-			subagents += openSubagents(transcriptPath(s.Cfg.Vault, sid), sid)
+			subagents += openSubagents(transcriptPath(s.Cfg().Vault, sid), sid)
 		}
 	}
 	writeJSON(w, map[string]any{
 		"day": day, "pending": pending, "must_run": must,
 		"running": s.runningJobs(r.Context()), "subagents": subagents,
-		"cost_by_routine": byRoutine, "cost_by_agent": byAgent, "budget": s.Cfg.Budget,
+		"cost_by_routine": byRoutine, "cost_by_agent": byAgent, "budget": s.Cfg().Budget,
 	})
 }
 
@@ -167,7 +167,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func (s *Server) doctor(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, doctor.Full(s.Cfg, nil, doctor.Default(s.Cfg.Path)))
+	writeJSON(w, doctor.Full(s.Cfg(), nil, doctor.Default(s.Cfg().Path)))
 }
 
 func (s *Server) runs(w http.ResponseWriter, r *http.Request) {
@@ -219,7 +219,7 @@ func (s *Server) routines(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var out []row
-	for name, rt := range s.Cfg.Routines {
+	for name, rt := range s.Cfg().Routines {
 		done, _ := s.L.SucceededToday(r.Context(), day, name)
 		l := byName[name]
 		out = append(out, row{name, rt.Kind, rt.Schedule, rt.Window, rt.MustRun, done, pending[name], l.Cost, l.Runs, l.Failed})
@@ -230,7 +230,7 @@ func (s *Server) routines(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) runRoutine(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	rt, ok := s.Cfg.Routines[name]
+	rt, ok := s.Cfg().Routines[name]
 	if !ok {
 		http.Error(w, "unknown routine", 404)
 		return
@@ -275,7 +275,7 @@ func (s *Server) dropJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) reconcileNow(w http.ResponseWriter, r *http.Request) {
-	out, enq, err := reconcile.RunWith(r.Context(), s.Cfg, s.Q, s.L, s.Now(), doctor.NextFire())
+	out, enq, err := reconcile.RunWith(r.Context(), s.Cfg(), s.Q, s.L, s.Now(), doctor.NextFire())
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -288,7 +288,7 @@ func (s *Server) reconcileNow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) artStore() *artifacts.Store {
-	st, _ := artifacts.New(s.Cfg.ArtifactsDir(), time.Duration(s.Cfg.Artifacts.TTLDays)*24*time.Hour, s.Cfg.Artifacts.MaxMB)
+	st, _ := artifacts.New(s.Cfg().ArtifactsDir(), time.Duration(s.Cfg().Artifacts.TTLDays)*24*time.Hour, s.Cfg().Artifacts.MaxMB)
 	return st
 }
 

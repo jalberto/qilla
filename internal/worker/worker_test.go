@@ -60,7 +60,7 @@ func setup(t *testing.T, routine config.Routine, gather string) *env {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
-	w, err := New(cfg, s.DB())
+	w, err := New(config.NewHolder(cfg), s.DB())
 	if err != nil {
 		t.Fatal(err)
 	}

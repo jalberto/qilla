@@ -300,7 +300,7 @@ func (s *Server) chatHistory(w http.ResponseWriter, r *http.Request) {
 	if agent == "" {
 		agent = "chief"
 	}
-	if _, ok := s.Cfg.Agents[agent]; !ok {
+	if _, ok := s.Cfg().Agents[agent]; !ok {
 		http.Error(w, "unknown agent", 400)
 		return
 	}
@@ -309,10 +309,10 @@ func (s *Server) chatHistory(w http.ResponseWriter, r *http.Request) {
 		n = 40
 	}
 	sid := s.W.Session(agent)
-	st := chatState{Agent: agent, SessionID: sid, Model: s.Cfg.Chat.Model, Effort: s.Cfg.Chat.Effort,
+	st := chatState{Agent: agent, SessionID: sid, Model: s.Cfg().Chat.Model, Effort: s.Cfg().Chat.Effort,
 		Attached: attached(sid), Running: s.runningJobs(r.Context()), Turns: []Turn{}}
 	if sid != "" {
-		path := transcriptPath(s.Cfg.Vault, sid)
+		path := transcriptPath(s.Cfg().Vault, sid)
 		if turns, err := readTurns(path, n); err == nil {
 			st.Turns = turns
 		}
@@ -346,13 +346,13 @@ func (s *Server) tailTranscripts(ctx context.Context) {
 		case <-tick.C:
 		}
 		i++
-		for agent := range s.Cfg.Agents {
+		for agent := range s.Cfg().Agents {
 			sid := s.W.Session(agent)
 			if sid == "" {
 				continue
 			}
 			c := cur[agent]
-			path := transcriptPath(s.Cfg.Vault, sid)
+			path := transcriptPath(s.Cfg().Vault, sid)
 			if c == nil || c.sid != sid {
 				// new or rotated session: start at the current end, history is the endpoint's job
 				st, err := os.Stat(path)

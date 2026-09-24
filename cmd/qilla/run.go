@@ -90,7 +90,7 @@ func runRoutine(cfg *config.Config, name string, o runOpts) error {
 		return err
 	}
 	defer s.Close()
-	w, err := worker.New(cfg, s.DB())
+	w, err := worker.New(config.NewHolder(cfg), s.DB())
 	if err != nil {
 		return err
 	}

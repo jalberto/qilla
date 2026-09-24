@@ -20,7 +20,7 @@ func (w *Worker) secretsRoot() string {
 	if rd := os.Getenv("XDG_RUNTIME_DIR"); rd != "" {
 		return filepath.Join(rd, "qilla", "secrets")
 	}
-	return filepath.Join(w.Cfg.StateDir, "secrets")
+	return filepath.Join(w.Cfg().StateDir, "secrets")
 }
 
 // routineSecrets is which secrets a routine may see: the names its manifest
@@ -56,7 +56,7 @@ func routineSecrets(dir, configDir string) []string {
 // cannot be decrypted is logged and skipped, so a gather that does not need it
 // still runs.
 func (w *Worker) mountSecrets(dir, name string) (string, func()) {
-	configDir := filepath.Dir(w.Cfg.Path)
+	configDir := filepath.Dir(w.Cfg().Path)
 	names := routineSecrets(dir, configDir)
 	if len(names) == 0 {
 		return "", func() {}

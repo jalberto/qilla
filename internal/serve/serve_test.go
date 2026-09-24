@@ -32,9 +32,10 @@ func newServer(t *testing.T) (*Server, Listeners, *fakeW) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { q.Close() })
-	w, _ := worker.New(cfg, q.DB())
+	hold := config.NewHolder(cfg)
+	w, _ := worker.New(hold, q.DB())
 	l, _ := ledger.New(q.DB(), nil)
-	s := New(cfg, q, w, l)
+	s := New(hold, q, w, l)
 	s.Log = func(string, ...any) {}
 	ls, err := Listen(cfg, filepath.Join(dir, "p.sock"))
 	if err != nil {
@@ -163,5 +164,26 @@ func TestArtifactServedWithCSP(t *testing.T) {
 	}
 	if res, _ := http.Get("http://" + ls.HTTP.Addr().String() + "/artifacts/../etc/passwd"); res.StatusCode == 200 {
 		t.Fatal("path characters must not resolve")
+	}
+}
+
+// TestDrainReloadsConfig: a routine added to qilla.toml while the supervisor
+// runs must be known by the time its job is drained, not after a restart.
+func TestDrainReloadsConfig(t *testing.T) {
+	s, _, _ := newServer(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "qilla.toml")
+	body := "vault = \"" + dir + "\"\nstate_dir = \"" + dir + "\"\n"
+	os.WriteFile(path, []byte(body), 0o644)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Hold = config.NewHolder(cfg)
+	s.W.Hold = s.Hold
+	os.WriteFile(path, []byte(body+"[routines.vault-sync]\nkind = \"script\"\nschedule = \"manual\"\n"), 0o644)
+	s.drain(context.Background())
+	if _, ok := s.Cfg().Routines["vault-sync"]; !ok {
+		t.Fatal("drain did not pick up the new routine")
 	}
 }

@@ -80,7 +80,10 @@ type Record struct {
 
 // Worker runs jobs.
 type Worker struct {
-	Cfg    *config.Config
+	// Hold is the live config: the supervisor may swap it in while the worker
+	// is alive, so every read goes through it rather than a copy taken at
+	// startup. A running job keeps the snapshot it started with (see run).
+	Hold   *config.Holder
 	DB     *sql.DB
 	Render Renderer
 	Mem    *mem.Store   // working memory; nil = disabled
@@ -88,14 +91,18 @@ type Worker struct {
 	Now    func() time.Time
 }
 
+// Cfg is the config as of right now. Callers that must not see a mid-flight
+// change read it once into a local.
+func (w *Worker) Cfg() *config.Config { return w.Hold.Get() }
+
 // New prepares the worker's tables.
-func New(cfg *config.Config, db *sql.DB) (*Worker, error) {
+func New(hold *config.Holder, db *sql.DB) (*Worker, error) {
 	if _, err := db.Exec(`
 CREATE TABLE IF NOT EXISTS sessions(agent TEXT PRIMARY KEY, session_id TEXT NOT NULL, updated INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS digests(routine TEXT PRIMARY KEY, digest TEXT NOT NULL, updated INTEGER NOT NULL);`); err != nil {
 		return nil, err
 	}
-	return &Worker{Cfg: cfg, DB: db, Render: nopRenderer{}, Now: time.Now}, nil
+	return &Worker{Hold: hold, DB: db, Render: nopRenderer{}, Now: time.Now}, nil
 }
 
 type nopRenderer struct{}
@@ -118,22 +125,25 @@ func (w *Worker) Run(ctx context.Context, j *queue.Job) error {
 }
 
 func (w *Worker) run(ctx context.Context, j *queue.Job, rec *Record) error {
+	// one snapshot for the whole job: a model tier or budget changing halfway
+	// through a run would be worse than the staleness it fixes.
+	cfg := w.Cfg()
 	var r config.Routine
 	prompt := ""
 	if j.Routine == "ask" {
 		// an ask is the user's own conversation with the agent's main session — it
 		// follows the interactive [chat] model, not the agent's headless
 		// routine model, so the session never switches models by entry point.
-		r = config.Routine{Kind: config.KindResumed, Agent: j.Agent, Model: w.Cfg.Chat.Model}
+		r = config.Routine{Kind: config.KindResumed, Agent: j.Agent, Model: cfg.Chat.Model}
 		prompt = j.Text
 	} else {
 		var ok bool
-		if r, ok = w.Cfg.Routines[j.Routine]; !ok {
+		if r, ok = cfg.Routines[j.Routine]; !ok {
 			return queue.Terminal{Err: fmt.Errorf("routine %q not in config", j.Routine)}
 		}
 	}
 	rec.Kind, rec.Agent = r.Kind, r.Agent
-	dir := filepath.Join(w.Cfg.Vault, RoutinesDir, j.Routine)
+	dir := filepath.Join(cfg.Vault, RoutinesDir, j.Routine)
 
 	var gathered string
 	var hasGather bool
@@ -190,13 +200,13 @@ func (w *Worker) run(ctx context.Context, j *queue.Job, rec *Record) error {
 		prompt = string(b)
 	}
 	if r.Rules != "" { // judge routines: the rules file frames the task
-		if b, err := os.ReadFile(w.Cfg.VaultPath(r.Rules)); err == nil {
+		if b, err := os.ReadFile(cfg.VaultPath(r.Rules)); err == nil {
 			prompt = "<!-- rules: " + r.Rules + " -->\n" + string(b) + "\n\n" + prompt
 		} else {
 			return queue.Terminal{Err: fmt.Errorf("routine %s: rules %s missing", j.Routine, r.Rules)}
 		}
 	}
-	agent, ok := w.Cfg.Agents[r.Agent]
+	agent, ok := cfg.Agents[r.Agent]
 	if !ok {
 		return queue.Terminal{Err: fmt.Errorf("agent %q not in config", r.Agent)}
 	}
@@ -210,19 +220,19 @@ func (w *Worker) run(ctx context.Context, j *queue.Job, rec *Record) error {
 	if len(r.DisallowedTools) > 0 {
 		deny = append(append([]string{}, deny...), r.DisallowedTools...)
 	}
-	choice := w.Cfg.Models.Resolve(r.Model, r.Tier, agent.Model, agent.Tier, w.Now())
+	choice := cfg.Models.Resolve(r.Model, r.Tier, agent.Model, agent.Tier, w.Now())
 	model := choice.Model
 	rec.Model, rec.Tier, rec.Degraded = model, choice.Tier, choice.Degraded
 
-	ld := loader.Loader{Vault: w.Cfg.Vault, Persona: w.Cfg.Persona, Rules: w.Cfg.Rules, FactsDir: w.Cfg.FactsDir,
-		JournalDir: w.Cfg.JournalDir, RecallCmd: w.Cfg.RecallCmd, RecallTimeout: recallTimeout(w.Cfg.RecallTimeout), Now: w.Now}
+	ld := loader.Loader{Vault: cfg.Vault, Persona: cfg.Persona, Rules: cfg.Rules, FactsDir: cfg.FactsDir,
+		JournalDir: cfg.JournalDir, RecallCmd: cfg.RecallCmd, RecallTimeout: recallTimeout(cfg.RecallTimeout), Now: w.Now}
 	if w.Mem != nil {
 		project := j.Routine
 		if j.Routine == "ask" {
 			project = r.Agent // the chief's memory accumulates across asks
 		}
 		ld.Memory = func(q string, n int) (string, error) {
-			txt, _, err := w.Mem.Inject(ctx, project, q+" "+firstLine(gathered), n, w.Cfg.Memory.MaxChars)
+			txt, _, err := w.Mem.Inject(ctx, project, q+" "+firstLine(gathered), n, cfg.Memory.MaxChars)
 			return txt, err
 		}
 	}
@@ -232,12 +242,12 @@ func (w *Worker) run(ctx context.Context, j *queue.Job, rec *Record) error {
 	}
 	rec.PromptChars, rec.Missing, rec.MemoryChars = p.Chars, p.Missing, p.MemoryChars
 
-	spf, err := w.systemPromptFile(j.Routine, p.Stable)
+	spf, err := w.systemPromptFile(cfg, j.Routine, p.Stable)
 	if err != nil {
 		return err
 	}
 	// plugins are useless if the Skill tool is not allowed: add it when plugin dirs are configured
-	if dirs := w.Cfg.PluginDirs(); len(dirs) > 0 && len(tools) > 0 {
+	if dirs := cfg.PluginDirs(); len(dirs) > 0 && len(tools) > 0 {
 		hasSkill := false
 		for _, t := range tools {
 			if t == "Skill" {
@@ -249,12 +259,12 @@ func (w *Worker) run(ctx context.Context, j *queue.Job, rec *Record) error {
 		}
 	}
 	agentsJSON := ""
-	if defs, err := subagents.Load(w.Cfg.Vault, w.Cfg.Models); err == nil && len(defs) > 0 {
+	if defs, err := subagents.Load(cfg.Vault, cfg.Models); err == nil && len(defs) > 0 {
 		agentsJSON = subagents.JSON(defs)
 	}
-	req := claude.Request{Prompt: p.Dynamic, SystemPromptFile: spf, Agents: agentsJSON, Model: model, Effort: choice.Effort, AllowedTools: tools, DisallowedTools: deny, Workdir: w.Cfg.Vault, MCPConfig: w.Cfg.MCPConfig(),
+	req := claude.Request{Prompt: p.Dynamic, SystemPromptFile: spf, Agents: agentsJSON, Model: model, Effort: choice.Effort, AllowedTools: tools, DisallowedTools: deny, Workdir: cfg.Vault, MCPConfig: cfg.MCPConfig(),
 		Env: []string{"QILLA_RUN=1", "QILLA_ROUTINE=" + j.Routine, "QILLA_AGENT=" + r.Agent}}
-	switch sf, err := w.settingsFile(j.Routine, r); {
+	switch sf, err := w.settingsFile(cfg, j.Routine, r); {
 	case err == nil:
 		req.Settings = sf
 	case errors.Is(err, errSandboxOff):
@@ -262,8 +272,8 @@ func (w *Worker) run(ctx context.Context, j *queue.Job, rec *Record) error {
 		return fmt.Errorf("sandbox settings: %w", err) // never run unsandboxed by accident
 	}
 	if r.Kind == config.KindResumed {
-		maxIdle, _ := w.Cfg.Chat.MaxIdle() // validated at load
-		d := w.sessions().Attach(r.Agent, w.Cfg.Vault, maxIdle, w.recall(ctx, r.Agent))
+		maxIdle, _ := cfg.Chat.MaxIdle() // validated at load
+		d := w.sessions().Attach(r.Agent, cfg.Vault, maxIdle, w.recall(ctx, r.Agent))
 		req.Resume = d.Resume
 		if d.Rotated {
 			// the new session is already the agent's live one: claude must use
@@ -280,9 +290,9 @@ func (w *Worker) run(ctx context.Context, j *queue.Job, rec *Record) error {
 		}
 	}
 	if j.Routine == "ask" {
-		req.Effort = w.Cfg.Chat.Effort // same session, same settings as qilla chat
+		req.Effort = cfg.Chat.Effort // same session, same settings as qilla chat
 	}
-	res, err := claude.Run(ctx, w.Cfg.Claude, req)
+	res, err := claude.Run(ctx, cfg.Claude, req)
 	if err != nil {
 		return err
 	}
@@ -358,15 +368,15 @@ const gatherTimeout = 5 * time.Minute
 // written in: shell reads it from the process env, Starlark from ctx.env.
 func (w *Worker) GatherEnv(name string) map[string]string {
 	e := map[string]string{
-		"QILLA_VAULT":         w.Cfg.Vault,
+		"QILLA_VAULT":         w.Cfg().Vault,
 		"QILLA_ROUTINE":       name,
 		"QILLA_DATE":          w.Now().Format("2006-01-02"),
 		"QILLA_MEM_SEARCH":    "qilla mem search --project " + name,
 		"QILLA_BROWSER":       "qilla browser --agent " + name,
-		"QILLA_ARTIFACTS_DIR": filepath.Join(w.Cfg.StateDir, "artifacts-inbox"),
+		"QILLA_ARTIFACTS_DIR": filepath.Join(w.Cfg().StateDir, "artifacts-inbox"),
 	}
 	// the routine's settings: the user-specific half of a shareable bundle
-	if st := w.Cfg.Routines[name].Settings; len(st) > 0 {
+	if st := w.Cfg().Routines[name].Settings; len(st) > 0 {
 		if b, err := json.Marshal(st); err == nil {
 			e["QILLA_SETTINGS"] = string(b)
 		}
@@ -407,7 +417,7 @@ func (w *Worker) Gather(ctx context.Context, name string) (string, bool, error) 
 // a gather.star's declared write/http mutations are recorded as
 // "_dry_actions" in the JSON instead of being performed.
 func (w *Worker) GatherDry(ctx context.Context, name string, dry bool) (string, bool, error) {
-	return w.gather(ctx, filepath.Join(w.Cfg.Vault, RoutinesDir, name), name, dry)
+	return w.gather(ctx, filepath.Join(w.Cfg().Vault, RoutinesDir, name), name, dry)
 }
 
 // gather runs the routine's gather step in the vault: <dir>/gather.sh (any
@@ -422,7 +432,7 @@ func (w *Worker) gather(ctx context.Context, dir, name string, dry bool) (string
 	ctx, cancel := context.WithTimeout(ctx, gatherTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "sh", script)
-	cmd.Dir = w.Cfg.Vault
+	cmd.Dir = w.Cfg().Vault
 	env, cleanup := w.gatherEnv(dir, name)
 	defer cleanup()
 	cmd.Env = claude.Scrub(os.Environ())
@@ -461,18 +471,18 @@ func (w *Worker) gatherStar(ctx context.Context, dir, name string, dry bool) (st
 		dry = true
 	}
 	senv := star.Env{
-		Routine: name, Date: env["QILLA_DATE"], Vault: w.Cfg.Vault,
+		Routine: name, Date: env["QILLA_DATE"], Vault: w.Cfg().Vault,
 		SecretsDir: env["QILLA_SECRETS_DIR"], Vars: env, Timeout: gatherTimeout,
-		Settings: w.Cfg.Routines[name].Settings,
+		Settings: w.Cfg().Routines[name].Settings,
 		DryRun:   dry,
 		// decide() needs no capability: it only reads the exported models.
-		DecidersDir: filepath.Join(w.Cfg.StateDir, "deciders"),
+		DecidersDir: filepath.Join(w.Cfg().StateDir, "deciders"),
 		// ask() talks to the local Lemonade; [deciders] says where and how.
 		AskConfig: w.askConfigFor(env["QILLA_SECRETS_DIR"]),
 		// fetch() climbs the ladder on the [browser] identity.
-		BrowserProfile: w.Cfg.Browser.Profile,
-		BrowserSession: w.Cfg.Browser.Session,
-		BrowserClass:   w.Cfg.Browser.Class,
+		BrowserProfile: w.Cfg().Browser.Profile,
+		BrowserSession: w.Cfg().Browser.Session,
+		BrowserClass:   w.Cfg().Browser.Class,
 	}
 	// [capabilities] from the bundle's routine.toml scopes the side effects
 	// the script may have; no manifest ⇒ the frozen, pure runtime.
@@ -539,7 +549,7 @@ func (w *Worker) recall(ctx context.Context, agent string) session.Recall {
 		return nil
 	}
 	return func(q string) string {
-		txt, _, err := w.Mem.Inject(ctx, agent, q, 5, w.Cfg.Memory.MaxChars)
+		txt, _, err := w.Mem.Inject(ctx, agent, q, 5, w.Cfg().Memory.MaxChars)
 		if err != nil {
 			return ""
 		}
@@ -566,7 +576,7 @@ func (w *Worker) setSession(agent, id string) { w.sessions().Set(agent, id) }
 
 // save writes the record under <state_dir>/runs/<job>.json for the UI and debugging.
 func (w *Worker) save(rec Record) {
-	dir := filepath.Join(w.Cfg.StateDir, "runs")
+	dir := filepath.Join(w.Cfg().StateDir, "runs")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return
 	}
@@ -673,27 +683,27 @@ func (w *Worker) judge(ctx context.Context, result any) {
 // Content is deterministic so the file is stable across runs.
 var errSandboxOff = errors.New("sandbox disabled")
 
-func (w *Worker) settingsFile(name string, r config.Routine) (string, error) {
-	if w.Cfg.Sandbox.Disabled {
+func (w *Worker) settingsFile(cfg *config.Config, name string, r config.Routine) (string, error) {
+	if cfg.Sandbox.Disabled {
 		return "", errSandboxOff
 	}
-	domains := append(append([]string{}, w.Cfg.Sandbox.AllowedDomains...), r.AllowedDomains...)
+	domains := append(append([]string{}, cfg.Sandbox.AllowedDomains...), r.AllowedDomains...)
 	sort.Strings(domains)
 	// secrets are for gather.sh: deny the credentials dir and the encrypted store to sandboxed Bash
-	deny := []string{filepath.Join(filepath.Dir(w.Cfg.Path), "creds"), w.secretsRoot()}
+	deny := []string{filepath.Join(filepath.Dir(cfg.Path), "creds"), w.secretsRoot()}
 	if cd := os.Getenv("CREDENTIALS_DIRECTORY"); cd != "" {
 		deny = append(deny, cd)
 	}
 	sort.Strings(deny)
 	set := map[string]any{
 		// a qilla session must look like one: purple badge, routine name, never the plain claude line
-		"statusLine": map[string]any{"type": "command", "command": install.StatusLineCommand(filepath.Dir(w.Cfg.Path), w.Cfg.Chat.StatusLine), "padding": 0},
+		"statusLine": map[string]any{"type": "command", "command": install.StatusLineCommand(filepath.Dir(cfg.Path), cfg.Chat.StatusLine), "padding": 0},
 		"sandbox": map[string]any{
 			"enabled": true, "allowUnsandboxedCommands": false,
 			"filesystem": map[string]any{"denyRead": deny, "denyWrite": deny},
 			"network":    map[string]any{"allowedDomains": domains}}}
 	b, _ := json.MarshalIndent(set, "", "  ")
-	dir := filepath.Join(w.Cfg.StateDir, "settings")
+	dir := filepath.Join(cfg.StateDir, "settings")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -706,11 +716,11 @@ func (w *Worker) settingsFile(name string, r config.Routine) (string, error) {
 
 // systemPromptFile persists the stable prefix (persona + rules) under
 // state_dir/system/<routine>.md, rewritten only when it changes.
-func (w *Worker) systemPromptFile(name, stable string) (string, error) {
+func (w *Worker) systemPromptFile(cfg *config.Config, name, stable string) (string, error) {
 	if strings.TrimSpace(stable) == "" {
 		return "", nil
 	}
-	dir := filepath.Join(w.Cfg.StateDir, "system")
+	dir := filepath.Join(cfg.StateDir, "system")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -765,7 +775,7 @@ func PendingPath(stateDir, routine string) string {
 // inputPending returns the queued items as a JSON array (and leaves the file;
 // the routine's result may `drop` ids).
 func (w *Worker) inputPending(routine string) (string, error) {
-	b, err := os.ReadFile(PendingPath(w.Cfg.StateDir, routine))
+	b, err := os.ReadFile(PendingPath(w.Cfg().StateDir, routine))
 	if errors.Is(err, os.ErrNotExist) {
 		return "[]", nil
 	}
@@ -784,7 +794,7 @@ func (w *Worker) inputPending(routine string) (string, error) {
 
 // dropPending removes judged ids from the pending file.
 func (w *Worker) dropPending(routine string, ids []string) {
-	p := PendingPath(w.Cfg.StateDir, routine)
+	p := PendingPath(w.Cfg().StateDir, routine)
 	b, err := os.ReadFile(p)
 	if err != nil {
 		return
@@ -824,7 +834,7 @@ func (w *Worker) importArtifacts(j *queue.Job, result any) []string {
 	if !ok || len(items) == 0 {
 		return nil
 	}
-	st, err := artifacts.New(w.Cfg.ArtifactsDir(), time.Duration(w.Cfg.Artifacts.TTLDays)*24*time.Hour, w.Cfg.Artifacts.MaxMB)
+	st, err := artifacts.New(w.Cfg().ArtifactsDir(), time.Duration(w.Cfg().Artifacts.TTLDays)*24*time.Hour, w.Cfg().Artifacts.MaxMB)
 	if err != nil {
 		return nil
 	}
@@ -839,7 +849,7 @@ func (w *Worker) importArtifacts(j *queue.Job, result any) []string {
 		if path == "" {
 			continue
 		}
-		cands := []string{path, filepath.Join(w.Cfg.Vault, path), filepath.Join(w.Cfg.StateDir, path)}
+		cands := []string{path, filepath.Join(w.Cfg().Vault, path), filepath.Join(w.Cfg().StateDir, path)}
 		for _, c := range cands {
 			if _, err := os.Stat(c); err == nil {
 				if meta, err := st.Add(c, title, j.Routine, j.ID, 0); err == nil {
@@ -856,7 +866,7 @@ func (w *Worker) importArtifacts(j *queue.Job, result any) []string {
 // "qilla: <routine> <date>". Nothing to commit → ("", nil).
 func (w *Worker) commitVault(ctx context.Context, routine string) (string, error) {
 	git := func(args ...string) (string, error) {
-		c := exec.CommandContext(ctx, "git", append([]string{"-C", w.Cfg.Vault}, args...)...)
+		c := exec.CommandContext(ctx, "git", append([]string{"-C", w.Cfg().Vault}, args...)...)
 		c.Env = claude.Scrub(os.Environ())
 		out, err := c.CombinedOutput()
 		return strings.TrimSpace(string(out)), err
@@ -886,16 +896,16 @@ func (w *Worker) commitVault(ctx context.Context, routine string) (string, error
 // when the remote route is asked for and enabled.
 func (w *Worker) askConfigFor(secretsDir string) func(*decide.AskRequest) {
 	return func(req *decide.AskRequest) {
-		req.URL = w.Cfg.Deciders.LemonadeURL
-		req.Model = w.Cfg.Deciders.AskModel
-		req.PolicyVersion = w.Cfg.Deciders.PolicyVersion
+		req.URL = w.Cfg().Deciders.LemonadeURL
+		req.Model = w.Cfg().Deciders.AskModel
+		req.PolicyVersion = w.Cfg().Deciders.PolicyVersion
 		if req.Floor == 0 {
-			req.Floor = w.Cfg.Deciders.ConfFloor
+			req.Floor = w.Cfg().Deciders.ConfFloor
 		}
-		req.JevEnabled = w.Cfg.Deciders.JevEnabled
-		req.JevURL = w.Cfg.Deciders.JevURL
-		req.JevModel = w.Cfg.Deciders.JevModel
-		req.JevDailyMax = w.Cfg.Deciders.JevDailyMax
+		req.JevEnabled = w.Cfg().Deciders.JevEnabled
+		req.JevURL = w.Cfg().Deciders.JevURL
+		req.JevModel = w.Cfg().Deciders.JevModel
+		req.JevDailyMax = w.Cfg().Deciders.JevDailyMax
 		if req.Route == "jev" && req.JevEnabled {
 			for _, d := range []string{secretsDir, os.Getenv("QILLA_SECRETS_DIR"), os.Getenv("CREDENTIALS_DIRECTORY")} {
 				if d == "" {
