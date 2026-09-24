@@ -66,6 +66,14 @@ type Routine struct {
 	// `settings` global in gather.star, and to templates as `settings`.
 	Settings map[string]any `toml:"settings"`
 	Commit   bool           `toml:"commit"` // after a successful run qilla commits the vault (git add -A minus .obsidian); the model never runs git
+	// Fetch overrides [fetch] for this routine's gather.star fetch(). A
+	// headless run gets headed = "never" unless this says otherwise.
+	Fetch RoutineFetch `toml:"fetch"`
+}
+
+// RoutineFetch is [routines.<name>.fetch].
+type RoutineFetch struct {
+	Headed string `toml:"headed"` // never | ask | always; "" = never (routines run unattended)
 }
 
 // Web is the UI listener.
@@ -166,6 +174,7 @@ type Fetch struct {
 	LadderURL string            `toml:"ladder_url"` // soft-paywall proxy, default http://nasdxp:8082
 	Mirrors   map[string]string `toml:"mirrors"`    // host → mirror host, merged over the built-in reddit → safereddit
 	Route     string            `toml:"route"`      // auto (ledger + decider) | default (fixed order, for debugging)
+	Headed    string            `toml:"headed"`     // never | ask (default: a Noul decision first) | always
 }
 
 // MirrorTable is the built-in mirror table with [fetch] mirrors over it.
@@ -253,9 +262,17 @@ type Health struct {
 // `jev_daily_max` is the cap on remote calls per day (Variables.md
 // `decider_jev_daily_max`), counted over today's `route="jev"` trace lines.
 // `jev_key` is a secret, read from $QILLA_SECRETS_DIR/jev_key, never from TOML.
+//
+// The local route is kev (a System One server, `kev_url`/`kev_model`, optional
+// secret `kev_key`); `default_route` says where `auto` sends public input
+// (jev, the default, or local). `lemonade_url`/`ask_model` are deprecated: the
+// Lemonade decider model is retired and is only used when kev_url is "".
 type Deciders struct {
-	LemonadeURL   string  `toml:"lemonade_url"`   // OpenAI-compatible base, default http://127.0.0.1:13305/api/v1
-	AskModel      string  `toml:"ask_model"`      // decider checkpoint as Lemonade registers it
+	KevURL        string  `toml:"kev_url"`        // local System One server, default http://127.0.0.1:8009; "" = the deprecated Lemonade path
+	KevModel      string  `toml:"kev_model"`      // kev model alias (default kev-latest)
+	DefaultRoute  string  `toml:"default_route"`  // jev (default) | local: where `auto` sends public input
+	LemonadeURL   string  `toml:"lemonade_url"`   // deprecated: OpenAI-compatible base, default http://127.0.0.1:13305/api/v1
+	AskModel      string  `toml:"ask_model"`      // deprecated: decider checkpoint as Lemonade registers it
 	ConfFloor     float64 `toml:"conf_floor"`     // below this the answer is unknown (default 0.85)
 	PolicyVersion string  `toml:"policy_version"` // tags every trace line (default ask-v1)
 	JevEnabled    bool    `toml:"jev_enabled"`    // the remote route, off by default
@@ -399,6 +416,11 @@ func Load(path string) (*Config, error) {
 	if !md.IsDefined("hooks", "learn_every") {
 		c.Hooks.LearnEvery = DefaultLearnEvery
 	}
+	// kev_url = "" is meaningful (the deprecated Lemonade path), so only an
+	// absent key gets the default.
+	if !md.IsDefined("deciders", "kev_url") {
+		c.Deciders.KevURL = decide.DefaultKevURL
+	}
 	c.applyDefaults()
 	if err := c.Validate(); err != nil {
 		return nil, fmt.Errorf("config %s: %w", path, err)
@@ -452,6 +474,9 @@ func (c *Config) applyDefaults() {
 	def(&c.Fetch.HisterURL, fetchpkg.DefaultHisterURL)
 	def(&c.Fetch.LadderURL, fetchpkg.DefaultLadderURL)
 	def(&c.Fetch.Route, "auto")
+	def(&c.Fetch.Headed, "ask")
+	def(&c.Deciders.KevModel, decide.DefaultKevModel)
+	def(&c.Deciders.DefaultRoute, decide.DefaultRoute)
 	def(&c.Deciders.LemonadeURL, decide.DefaultLemonadeURL)
 	def(&c.Deciders.AskModel, decide.DefaultAskModel)
 	def(&c.Deciders.PolicyVersion, decide.DefaultPolicyVersion)
@@ -525,6 +550,16 @@ func (c *Config) Validate() error {
 	if c.Budget.Block > 0 && c.Budget.Warn > c.Budget.Block {
 		return errors.New("budget.warn above budget.block")
 	}
+	switch c.Deciders.DefaultRoute {
+	case "", "jev", "local":
+	default:
+		return fmt.Errorf("deciders.default_route must be jev | local, got %q", c.Deciders.DefaultRoute)
+	}
+	switch c.Fetch.Headed {
+	case "", "never", "ask", "always":
+	default:
+		return fmt.Errorf("fetch.headed must be never | ask | always, got %q", c.Fetch.Headed)
+	}
 	for name, r := range c.Routines {
 		if !nameRe.MatchString(name) {
 			return fmt.Errorf("routine %q: name must be lowercase [a-z0-9-]", name)
@@ -536,6 +571,11 @@ func (c *Config) Validate() error {
 		}
 		if r.Schedule == "" {
 			return fmt.Errorf("routine %s: schedule required (systemd OnCalendar, or \"manual\" for ask/enqueue-only routines)", name)
+		}
+		switch r.Fetch.Headed {
+		case "", "never", "ask", "always":
+		default:
+			return fmt.Errorf("routine %s: fetch.headed must be never | ask | always", name)
 		}
 		switch r.Input {
 		case "", "gather", "runs", "pending":

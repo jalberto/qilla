@@ -154,7 +154,7 @@ func (r *runner) bAsk(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tup
 		}
 	}
 	if route == "" {
-		route = "local"
+		route = "auto" // jev for public=True (when enabled), kev otherwise
 	}
 	req := decide.AskRequest{
 		Kind: kind, Options: options, Question: question, Text: text,

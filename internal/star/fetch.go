@@ -15,7 +15,7 @@ import (
 
 // bFetch is the `fetch(url, max_rung=0)` builtin: the web-research ladder in
 // one call. It returns the same dict `qilla fetch --json` prints —
-// {url, rung, pos, kind, conf, via, chars, order, route,
+// {url, rung, pos, kind, conf, via, chars, order, route, needs_human,
 // tried:[{rung, pos, kind, ms[, note]}]} plus `text` (rung is the rung name,
 // max_rung a position in the chosen order) — and never raises for a blocked page: the script reads `kind`.
 //
@@ -42,8 +42,14 @@ func (r *runner) bFetch(_ *starlark.Thread, b *starlark.Builtin, args starlark.T
 		Mirrors:    r.env.Fetch.Mirrors,
 		Route:      r.env.Fetch.Route,
 		LedgerPath: r.env.Fetch.LedgerPath,
+		// Routines run unattended: never a headed window unless the
+		// routine's own [fetch] headed says so.
+		Headed: fetch.HeadedNever,
 		// karakeep-crawl creates a bookmark: never on a dry run.
 		ReadOnly: r.env.DryRun,
+	}
+	if h := r.env.Fetch.Headed; h != "" {
+		o.Headed = h
 	}
 	if u, ok := r.env.Settings["karakeep_url"].(string); ok && u != "" && r.env.SecretsDir != "" {
 		if b, err := os.ReadFile(filepath.Join(r.env.SecretsDir, "karakeep")); err == nil {
@@ -111,6 +117,7 @@ func fetchDict(res fetch.Result) *starlark.Dict {
 	d.SetKey(starlark.String("via"), starlark.String(res.Via))
 	d.SetKey(starlark.String("chars"), starlark.MakeInt(res.Chars))
 	d.SetKey(starlark.String("text"), starlark.String(res.Text))
+	d.SetKey(starlark.String("needs_human"), starlark.Bool(res.NeedsHuman))
 	tried := starlark.NewList(nil)
 	for _, t := range res.Tried {
 		e := starlark.NewDict(4)

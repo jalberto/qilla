@@ -101,6 +101,10 @@ func PageKindWith(ctx context.Context, text string, ask PageKindAsk) (kind strin
 		Question: PageKindQuestion,
 		Text:     snippet,
 		Caller:   "fetch",
+		// Fetched web pages are public input: auto sends them to Jev (kev
+		// when jev is disabled, down or over its cap).
+		Public: true,
+		Route:  "auto",
 	})
 	if err != nil || res.Label == "" {
 		return Unknown, 0, "ask"

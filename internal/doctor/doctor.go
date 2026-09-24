@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,6 +45,7 @@ type Env struct {
 	Validate      func(tmplPath string) error                // knap validate; nil = skip
 	ListTimers    func() ([]Timer, error)                    // systemctl --user list-timers; nil = skip
 	EngramHealth  func(url string) error                     // probe the memory sidecar; nil = skip
+	KevModels     func(url string) error                     // GET <kev_url>/v1/models; nil = skip
 	SecurityScore func(unit string) (float64, error)         // systemd-analyze security; nil = skip
 	Calendar      func(spec string) error                    // systemd-analyze calendar; nil = skip
 	MiseMissing   func(configDir string) ([]string, error)   // tools in <configDir>/mise.toml not installed; nil = skip
@@ -103,6 +105,7 @@ func Default(configPath string) Env {
 			defer cancel()
 			return b.Health(ctx)
 		},
+		KevModels: kevModels,
 		UnitState: unitState,
 		Restart: func(unit string) error {
 			return exec.Command("systemctl", "--user", "restart", unit).Run()
@@ -453,6 +456,18 @@ func Run(cfg *config.Config, loadErr error, env Env) []Check {
 			add("timers", true, false, fmt.Sprintf("%d active", len(install.TimerNames(units))))
 		} else {
 			add("timers", false, false, "inactive: "+strings.Join(inactive, " "))
+		}
+	}
+
+	// kev, the local decider: every non-public ask (and public ones when
+	// default_route = "local" or jev falls back) needs it. Down is a warning —
+	// an unanswered ask is an `unknown`, never a crash.
+	if env.KevModels != nil && strings.TrimSpace(cfg.Deciders.KevURL) != "" {
+		u := strings.TrimRight(cfg.Deciders.KevURL, "/")
+		if err := env.KevModels(u); err != nil {
+			add("kev", false, false, fmt.Sprintf("%s/v1/models: %s — local asks come back unknown (default_route %s)", u, firstLine(err.Error()), cfg.Deciders.DefaultRoute))
+		} else {
+			add("kev", true, false, u+" answers")
 		}
 	}
 
@@ -1000,4 +1015,23 @@ func unlinkedSkills(pluginDir string, dirs []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// kevModels probes kev's model list: any answer below 400 within 3 s is up.
+func kevModels(base string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/v1/models", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("http %d", resp.StatusCode)
+	}
+	return nil
 }

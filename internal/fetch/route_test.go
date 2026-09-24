@@ -178,6 +178,9 @@ func TestAskAnswerHonoured(t *testing.T) {
 	if res.Route != RouteAsk || res.Rung != RungObscura || res.Pos != 3 {
 		t.Fatalf("got %+v", res)
 	}
+	if !req.Public || req.Route != "auto" {
+		t.Fatalf("fetch-route asks are public/auto, got public=%v route=%q", req.Public, req.Route)
+	}
 	if req.Kind != "choice" || len(req.Options) != 8 || !strings.Contains(req.Text, "HEAD 403") || !strings.Contains(req.Text, "cloudflare") {
 		t.Fatalf("request = %+v", req)
 	}

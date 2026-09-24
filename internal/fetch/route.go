@@ -12,5 +12,8 @@ func askRouteRequest(text string) decide.AskRequest {
 		Question: RouteQuestion,
 		Text:     text,
 		Caller:   "fetch-route",
+		// A URL plus its HEAD headers is public: auto → Jev, kev fallback.
+		Public: true,
+		Route:  "auto",
 	}
 }

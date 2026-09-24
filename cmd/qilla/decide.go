@@ -160,7 +160,7 @@ func decideStatus(args []string) error {
 // --- decide ask ------------------------------------------------------------
 
 const askUsage = `usage: qilla decide ask --choice a,b,c | --score | --noul [--question Q]
-                       (--text T | --stdin) [--floor F] [--route local|jev] [--public]
+                       (--text T | --stdin) [--floor F] [--route auto|local|jev] [--public]
                        [--caller C] [--state DIR]
        qilla decide ask --show-trace [--tail N] [--state DIR]`
 
@@ -186,7 +186,7 @@ type askArgs struct {
 
 // parseAskArgs reads the flags; every error it returns wraps errUsage.
 func parseAskArgs(args []string) (askArgs, error) {
-	a := askArgs{kind: "choice", route: "local", tail: 20}
+	a := askArgs{kind: "choice", route: "auto", tail: 20}
 	bad := func(format string, v ...any) (askArgs, error) {
 		return askArgs{}, fmt.Errorf("%w: %s", errUsage, fmt.Sprintf(format, v...))
 	}
@@ -399,11 +399,17 @@ func applyDecidersConfig(req *decide.AskRequest) error {
 	if req.Floor == 0 {
 		req.Floor = cfg.Deciders.ConfFloor
 	}
+	req.DefaultRoute = cfg.Deciders.DefaultRoute
+	req.KevURL = cfg.Deciders.KevURL
+	req.KevModel = cfg.Deciders.KevModel
+	if b, err := readSecret("kev_key"); err == nil { // optional bearer
+		req.KevKey = strings.TrimSpace(string(b))
+	}
 	req.JevEnabled = cfg.Deciders.JevEnabled
 	req.JevURL = cfg.Deciders.JevURL
 	req.JevModel = cfg.Deciders.JevModel
 	req.JevDailyMax = cfg.Deciders.JevDailyMax
-	if req.Route == "jev" && cfg.Deciders.JevEnabled {
+	if req.ResolveRoute() == "jev" {
 		if b, err := readSecret("jev_key"); err == nil {
 			req.JevKey = strings.TrimSpace(string(b))
 		}

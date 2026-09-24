@@ -70,6 +70,7 @@ hister_url = "http://127.0.0.1:4433"    # rung hister: pages JA already visited
 ladder_url = "http://nasdxp:8082"       # rung ladder: soft-paywall proxy (/raw/<url>)
 route = "auto"                          # auto: per-domain ledger (state_dir/fetch/ledger.json), else ask the fetch-route decider | default: fixed order (debugging)
 # mirrors = { "reddit.com" = "safereddit.com" }   # rung mirror: host → mirror host, merged over the built-in reddit/redd.it → safereddit.com
+headed = "ask"                          # headed rung: never | ask (a Noul decision first: a page needing a login/captcha is not opened, you get a reminder) | always; routines use never unless [routines.<name>.fetch] headed overrides
 
 [plugins]                               # your own skills, agents and hooks — merged into the single "qilla" Claude Code plugin by `qilla plugin install`
 dirs = ["Qilla/Plugin"]                 # vault-relative: put a .claude-plugin/plugin.json + skills/ there
@@ -107,15 +108,18 @@ max_mb = 5
 # warn_days = 3                         # 🟠 from this age on, the briefing flags it
 # stale_days = 7                        # 🔴 from this age on, it is stale
 
-[deciders]                              # the local decision layer: trained TF-IDF arms + `decide ask` (a small model on the GPU)
-# lemonade_url = "http://127.0.0.1:13305/api/v1"          # Lemonade's OpenAI-compatible base
-# ask_model = "decider-2b-GGUF-decider-2b-q8_0.gguf"      # the decider checkpoint as Lemonade registers it
+[deciders]                              # the decision layer: trained TF-IDF arms + `decide ask` (typed System One decisions: kev local, Jev remote)
+# kev_url = "http://127.0.0.1:8009"     # the local route: kev (POST /v1/systemone); optional bearer = the `kev_key` secret; "" = the deprecated Lemonade path below
+# kev_model = "kev-latest"              # kev model alias
+# default_route = "jev"                 # where `--route auto` sends --public input: jev (default, when jev_enabled) | local; non-public input always stays local
+# lemonade_url = "http://127.0.0.1:13305/api/v1"          # DEPRECATED (Lemonade decider retired): only used when kev_url = ""
+# ask_model = "decider-2b-GGUF-decider-2b-q8_0.gguf"      # DEPRECATED: the old Lemonade decider checkpoint
 # conf_floor = 0.85                     # below this the answer is "unknown" — undecided, never a guess (Variables.md decider_conf_floor)
 # policy_version = "ask-v1"             # tags every line of <state_dir>/deciders/decisions.jsonl
 # jev_enabled = false                   # the remote route, off by default (Variables.md decider_jev_enabled)
 # jev_url = "https://api.typesafe.ai"   # remote endpoint (TypeSafe AI); its bearer token is the `jev_key` secret, never this file
 # jev_model = "jev-latest"              # remote model name or alias (GET /v1/models lists them)
-# jev_daily_max = 200                   # hard cap on remote calls per day (Variables.md decider_jev_daily_max)
+# jev_daily_max = 200                   # hard cap on remote calls per day (Variables.md decider_jev_daily_max); an auto-routed ask over the cap, or on jev 5xx/timeout, retries once on kev
 
 [memory]                                # working memory: what qilla needs and you never read
 backend = "engram"                      # engram (sidecar, default) | sqlite (own FTS5 tables)

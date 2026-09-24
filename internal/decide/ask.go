@@ -3,7 +3,10 @@
 // same trace files) so a routine decides without spawning Python.
 //
 // No training set, no labels: the caller names the option set at the call site
-// and the decider model on the GPU (Lemonade) answers with one word. The
+// and a System One server answers — kev locally (route `local`), Jev remotely
+// for public input (route `jev`, the `auto` default when Public). The old
+// Lemonade chat-completions decider (answering with one word) is kept only
+// for a config with no kev_url. The
 // distribution comes from the generated tokens' logprobs, so the same
 // `unknown` escape as the trained arms applies — below the floor the answer is
 // `unknown`, and an unknown is *undecided*, never a guess.
@@ -54,6 +57,9 @@ const (
 	// JevTimeout: the remote route crosses the network, so it gets longer
 	// than Lemonade.
 	JevTimeout = 10 * time.Second
+	// KevTimeout: kev is socket-activated (kev-serve.socket) and stops when
+	// idle, so a cold call pays container start + model load before answering.
+	KevTimeout = 90 * time.Second
 	// DefaultJevDailyMax mirrors Killa/Config/Variables.md
 	// `decider_jev_daily_max`.
 	DefaultJevDailyMax = 200
@@ -61,6 +67,20 @@ const (
 	jevQuestion = "q"
 	// jevMaxRetryAfter caps how long a 429's Retry-After is honoured.
 	jevMaxRetryAfter = 5 * time.Second
+	// DefaultKevURL is kev (jaredpalmer/kev), the local TypeSafe-compatible
+	// System One server the `local` route asks.
+	DefaultKevURL = "http://127.0.0.1:8009"
+	// DefaultKevModel is kev's model alias.
+	DefaultKevModel = "kev-latest"
+	// DefaultRoute is what `auto` resolves to for public input.
+	DefaultRoute = "jev"
+)
+
+// Endpoints: which server answered, as the trace records it.
+const (
+	EndpointJev      = "jev"
+	EndpointKev      = "kev"
+	EndpointLemonade = "lemonade"
 )
 
 const (
@@ -85,8 +105,10 @@ const (
 var noulOptions = []string{"yes", "no"}
 
 // AskRequest is one typed decision. Kind is choice | score | noul; Route is
-// local | jev. The backend wiring below comes from the [deciders] config
-// block; zero values fall back to the package defaults.
+// auto | local | jev ("" = auto: jev for Public input when jev is enabled and
+// DefaultRoute is not "local", else local). The backend wiring below comes
+// from the [deciders] config block; zero values fall back to the package
+// defaults.
 type AskRequest struct {
 	Kind     string
 	Options  []string
@@ -97,7 +119,16 @@ type AskRequest struct {
 	Public   bool
 	Caller   string
 
-	// URL is the Lemonade OpenAI-compatible base ([deciders] lemonade_url).
+	// DefaultRoute is [deciders] default_route: "jev" (default) or "local";
+	// "local" keeps even public input on the machine.
+	DefaultRoute string
+	// KevURL, KevKey and KevModel are the local route's System One server
+	// ([deciders] kev_url, secret `kev_key`, kev_model). An empty KevURL
+	// falls back to the deprecated Lemonade path below.
+	KevURL, KevKey, KevModel string
+
+	// URL is the Lemonade OpenAI-compatible base ([deciders] lemonade_url,
+	// deprecated: only used when KevURL is empty).
 	URL string
 	// Model is the decider checkpoint ([deciders] ask_model).
 	Model string
@@ -139,6 +170,11 @@ type AskResult struct {
 	// Tokens is the remote route's billed input tokens (0 for local); it
 	// reaches the trace, not the CLI's JSON.
 	Tokens int
+	// Endpoint is the server that answered: jev | kev | lemonade (trace only).
+	Endpoint string
+	// Fallback is why an auto-routed jev ask was retried on kev, empty when
+	// it was not (trace only).
+	Fallback string
 }
 
 // MarshalJSON writes the fields in the Python CLI's order, and keeps its two
@@ -227,14 +263,42 @@ func (req AskRequest) baseURL() string {
 	return DefaultLemonadeURL
 }
 
-func (req AskRequest) timeoutFor(route string) time.Duration {
+func (req AskRequest) timeoutFor(endpoint string) time.Duration {
 	if req.Timeout > 0 {
 		return req.Timeout
 	}
-	if route == "jev" {
+	if endpoint == EndpointKev {
+		return KevTimeout
+	}
+	if endpoint == EndpointJev {
 		return JevTimeout
 	}
 	return AskTimeout
+}
+
+// ResolveRoute is the route a request actually takes: an explicit local or
+// jev as given; auto (or empty) goes jev only for public input with jev
+// enabled and default_route not "local" — anything else stays local.
+func (req AskRequest) ResolveRoute() string {
+	switch req.Route {
+	case "local", "jev":
+		return req.Route
+	}
+	if req.DefaultRoute == "local" {
+		return "local"
+	}
+	if req.Public && req.JevEnabled {
+		return "jev"
+	}
+	return "local"
+}
+
+// localEndpoint is kev when configured, else the deprecated Lemonade path.
+func (req AskRequest) localEndpoint() string {
+	if strings.TrimSpace(req.KevURL) != "" {
+		return EndpointKev
+	}
+	return EndpointLemonade
 }
 
 func (req AskRequest) client() *http.Client {
@@ -264,13 +328,13 @@ func (req AskRequest) Validate() error {
 		return fmt.Errorf("decide ask: kind must be choice | score | noul, got %q", req.Kind)
 	}
 	switch req.Route {
-	case "", "local":
+	case "", "auto", "local":
 	case "jev":
 		if !req.Public {
 			return fmt.Errorf("jev route requires public input")
 		}
 	default:
-		return fmt.Errorf("decide ask: route must be local | jev, got %q", req.Route)
+		return fmt.Errorf("decide ask: route must be auto | local | jev, got %q", req.Route)
 	}
 	return nil
 }
@@ -629,8 +693,10 @@ func scoreConf(positions [][]candidate, answer string) (float64, bool) {
 // `probabilities`, `confidence`) or a score (`score` expected value,
 // `probabilities`, `legend`, `confidence`).
 //
-// Callers must pass Public: nothing sensitive goes off the machine. A failure
-// is never a fallback to the local route — it is an unknown with the cause.
+// Callers must pass Public: nothing sensitive goes off the machine. An
+// explicit `jev` route never falls back — a failure is an unknown with the
+// cause; an `auto`-routed ask retries once on kev (the same wire contract,
+// local) when jev is down, 5xx or over its daily cap, and the trace says so.
 //
 // The error strings never carry the response body: it could echo the key.
 type jevResult struct {
@@ -645,19 +711,34 @@ type jevResult struct {
 
 func jevUnknown(msg string) jevResult { return jevResult{label: Unknown, errMsg: msg} }
 
-func (req AskRequest) jevURL() string {
-	base := strings.TrimRight(req.JevURL, "/")
-	if base == "" {
-		base = DefaultJevURL
-	}
-	return base + JevPath
+// systemOne is one System One server: jev (remote) or kev (local). Name
+// prefixes every error string.
+type systemOne struct {
+	name, base, key, model string
 }
 
-func (req AskRequest) jevModel() string {
-	if req.JevModel != "" {
-		return req.JevModel
+func (s systemOne) url() string { return strings.TrimRight(s.base, "/") + JevPath }
+
+func (req AskRequest) jevEndpoint() systemOne {
+	s := systemOne{name: EndpointJev, base: req.JevURL, key: req.JevKey, model: req.JevModel}
+	if strings.TrimSpace(s.base) == "" {
+		s.base = DefaultJevURL
 	}
-	return DefaultJevModel
+	if s.model == "" {
+		s.model = DefaultJevModel
+	}
+	return s
+}
+
+func (req AskRequest) kevEndpoint() systemOne {
+	s := systemOne{name: EndpointKev, base: req.KevURL, key: req.KevKey, model: req.KevModel}
+	if strings.TrimSpace(s.base) == "" {
+		s.base = DefaultKevURL
+	}
+	if s.model == "" {
+		s.model = DefaultKevModel
+	}
+	return s
 }
 
 func (req AskRequest) jevDailyMax() int {
@@ -721,55 +802,79 @@ func askJev(ctx context.Context, req AskRequest) jevResult {
 			return jevUnknown("jev daily cap")
 		}
 	}
+	return askSystemOne(ctx, req, req.jevEndpoint())
+}
+
+// askKev is the local route on kev: the same System One request as jev,
+// against the local server; the bearer is optional.
+func askKev(ctx context.Context, req AskRequest) jevResult {
+	return askSystemOne(ctx, req, req.kevEndpoint())
+}
+
+// askSystemOne sends one typed question to a System One server.
+func askSystemOne(ctx context.Context, req AskRequest, ep systemOne) jevResult {
 	payload, err := json.Marshal(map[string]any{
 		"state":     req.Text,
-		"model":     req.jevModel(),
+		"model":     ep.model,
 		"questions": map[string]any{jevQuestion: jevQuestionBody(req)},
 	})
 	if err != nil {
-		return jevUnknown("jev unreachable")
+		return jevUnknown(ep.name + " unreachable")
 	}
-	raw, errMsg := jevPost(ctx, req, payload, true)
+	raw, errMsg := jevPost(ctx, req, ep, payload, true)
 	if errMsg != "" {
 		return jevUnknown(errMsg)
 	}
-	return jevAnswer(req, raw)
+	return jevAnswer(req, ep, raw)
 }
 
 // jevPost sends the body once; a 429 is retried once after Retry-After (or
 // immediately when the header is absent), then given up on.
-func jevPost(ctx context.Context, req AskRequest, payload []byte, mayRetry bool) ([]byte, string) {
-	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, req.jevURL(), bytes.NewReader(payload))
+func jevPost(ctx context.Context, req AskRequest, ep systemOne, payload []byte, mayRetry bool) ([]byte, string) {
+	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, ep.url(), bytes.NewReader(payload))
 	if err != nil {
-		return nil, "jev unreachable"
+		return nil, ep.name + " unreachable"
 	}
 	hreq.Header.Set("Content-Type", "application/json")
 	hreq.Header.Set("Accept", "application/json")
-	hreq.Header.Set("Authorization", "Bearer "+req.JevKey)
+	if ep.key != "" {
+		hreq.Header.Set("Authorization", "Bearer "+ep.key)
+	}
 	resp, err := req.client().Do(hreq)
 	if err != nil {
-		return nil, "jev unreachable"
+		return nil, ep.name + " unreachable"
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusTooManyRequests {
 		if !mayRetry {
-			return nil, "jev rate limited"
+			return nil, ep.name + " rate limited"
 		}
 		if !jevWait(ctx, retryAfter(resp.Header.Get("Retry-After"))) {
-			return nil, "jev rate limited"
+			return nil, ep.name + " rate limited"
 		}
-		return jevPost(ctx, req, payload, false)
+		return jevPost(ctx, req, ep, payload, false)
 	}
 	if resp.StatusCode >= 400 {
 		// Never the body: it can quote the request, and the request carries
 		// nothing but the state — the key lives in the headers it echoes.
-		return nil, fmt.Sprintf("jev http %d", resp.StatusCode)
+		return nil, fmt.Sprintf("%s http %d", ep.name, resp.StatusCode)
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return nil, "jev unreachable"
+		return nil, ep.name + " unreachable"
 	}
 	return raw, ""
+}
+
+// jevFallsBack reports a jev failure worth one retry on kev: the server is
+// down or slow (unreachable covers the timeout), erroring (5xx), or today's
+// cap is spent. A 4xx is about the request or the key and is not retried.
+func jevFallsBack(errMsg string) bool {
+	switch errMsg {
+	case "jev unreachable", "jev daily cap":
+		return true
+	}
+	return strings.HasPrefix(errMsg, "jev http 5")
 }
 
 // retryAfter reads the delta-seconds form of Retry-After, capped.
@@ -802,29 +907,30 @@ func jevWait(ctx context.Context, d time.Duration) bool {
 
 // jevAnswer maps one System One response onto the local route's shape, so a
 // caller cannot tell the routes apart beyond `route` and `model`.
-func jevAnswer(req AskRequest, raw []byte) jevResult {
+func jevAnswer(req AskRequest, ep systemOne, raw []byte) jevResult {
+	bad := ep.name + " bad response"
 	var body map[string]any
 	if err := json.Unmarshal(raw, &body); err != nil {
-		return jevUnknown("jev bad response")
+		return jevUnknown(bad)
 	}
 	out := jevResult{label: Unknown}
 	out.model, _ = body["model"].(string)
 	if out.model == "" {
-		out.model = req.jevModel()
+		out.model = ep.model
 	}
 	if t, ok := toFloat(dig(body, "usage", "input_tokens")); ok {
 		out.tokens = int(t)
 	}
 	answer, ok := dig(body, "answers", jevQuestion).(map[string]any)
 	if !ok {
-		return jevResult{label: Unknown, model: out.model, tokens: out.tokens, errMsg: "jev bad response"}
+		return jevResult{label: Unknown, model: out.model, tokens: out.tokens, errMsg: bad}
 	}
 	conf, hasConf := toFloat(answer["confidence"])
 	switch req.Kind {
 	case "noul":
 		p, ok := toFloat(answer["noul"])
 		if !ok {
-			out.errMsg = "jev bad response"
+			out.errMsg = bad
 			return out
 		}
 		out.dist = map[string]float64{"yes": p, "no": 1 - p}
@@ -833,7 +939,7 @@ func jevAnswer(req AskRequest, raw []byte) jevResult {
 	case "score":
 		score, ok := toFloat(answer["score"])
 		if !ok {
-			out.errMsg = "jev bad response"
+			out.errMsg = bad
 			return out
 		}
 		v := int(math.Round(score))
@@ -852,7 +958,7 @@ func jevAnswer(req AskRequest, raw []byte) jevResult {
 			}
 		}
 		if len(dist) == 0 {
-			out.errMsg = "jev bad response"
+			out.errMsg = bad
 			return out
 		}
 		out.dist = dist
@@ -890,9 +996,11 @@ func Ask(ctx context.Context, req AskRequest) (AskResult, error) {
 	}
 	floor := req.floor()
 	options := req.AskOptions()
-	route := req.Route
-	if route == "" {
-		route = "local"
+	route := req.ResolveRoute()
+	auto := req.Route == "" || req.Route == "auto"
+	endpoint := EndpointJev
+	if route == "local" {
+		endpoint = req.localEndpoint()
 	}
 	model := req.model()
 	started := time.Now()
@@ -909,19 +1017,36 @@ func Ask(ctx context.Context, req AskRequest) (AskResult, error) {
 		conf     float64
 		value    *int
 		tokens   int
+		fallback string
 	)
 
-	cctx, cancel := context.WithTimeout(ctx, req.timeoutFor(route))
-	defer cancel()
-
-	if route == "jev" {
-		jr := askJev(cctx, req)
+	systemOneAsk := func(ep string, ask func(context.Context, AskRequest) jevResult) {
+		cctx, cancel := context.WithTimeout(ctx, req.timeoutFor(ep))
+		defer cancel()
+		jr := ask(cctx, req)
 		label, conf, dist, value, errMsg, tokens = jr.label, jr.conf, jr.dist, jr.value, jr.errMsg, jr.tokens
 		model = jr.model
 		if model == "" {
-			model = "jev"
+			model = ep
 		}
-	} else {
+	}
+
+	switch endpoint {
+	case EndpointJev:
+		systemOneAsk(EndpointJev, askJev)
+		// An auto-routed ask retries once on kev when jev is down, erroring
+		// or over its daily cap; an explicit --route jev never leaves jev.
+		if auto && errMsg != "" && jevFallsBack(errMsg) && strings.TrimSpace(req.KevURL) != "" {
+			fallback = errMsg
+			route, endpoint = "local", EndpointKev
+			tokens = 0
+			systemOneAsk(EndpointKev, askKev)
+		}
+	case EndpointKev:
+		systemOneAsk(EndpointKev, askKev)
+	default:
+		cctx, cancel := context.WithTimeout(ctx, req.timeoutFor(endpoint))
+		defer cancel()
 		body, err := chat(cctx, req, BuildPrompt(req.Kind, options, req.Question, req.Text))
 		switch {
 		case err != nil:
@@ -971,6 +1096,8 @@ func Ask(ctx context.Context, req AskRequest) (AskResult, error) {
 		Route:    route,
 		Model:    model,
 		Tokens:   tokens,
+		Endpoint: endpoint,
+		Fallback: fallback,
 		MS:       int(math.Round(float64(time.Since(started).Microseconds()) / 1000)),
 	}
 	if kind == "score" {
@@ -1057,6 +1184,8 @@ func AskAndTrace(ctx context.Context, dir string, req AskRequest) (AskResult, er
 		MS:            out.MS,
 		Caller:        req.Caller,
 		Tokens:        out.Tokens,
+		Endpoint:      out.Endpoint,
+		Fallback:      out.Fallback,
 	})
 	if werr := AppendTrace(dir, line, req.Text); werr != nil {
 		return out, werr

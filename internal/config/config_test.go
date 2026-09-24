@@ -36,6 +36,9 @@ func TestValidateRejects(t *testing.T) {
 		"window":  "[routines.x]\nkind='script'\nschedule='daily'\nwindow='8-9'\n",
 		"unknown": "vaultt='x'\n",
 		"name":    "[routines.Brief]\nkind='script'\nschedule='daily'\n",
+		"droute":  "[deciders]\ndefault_route='remote'\n",
+		"headed":  "[fetch]\nheaded='sometimes'\n",
+		"rheaded": "[routines.x]\nkind='script'\nschedule='daily'\n[routines.x.fetch]\nheaded='maybe'\n",
 	}
 	for name, body := range cases {
 		if _, err := Load(write(t, body)); err == nil {
@@ -74,5 +77,24 @@ func TestRoleFor(t *testing.T) {
 				t.Errorf("roleFor(%q, %v) = %q, want %q", tc.hostname, tc.roles, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestDecidersAndFetchDefaults(t *testing.T) {
+	c, err := Load(write(t, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := c.Deciders
+	if d.KevURL != "http://127.0.0.1:8009" || d.KevModel != "kev-latest" || d.DefaultRoute != "jev" || c.Fetch.Headed != "ask" {
+		t.Fatalf("defaults: %+v headed %q", d, c.Fetch.Headed)
+	}
+	// kev_url = "" keeps the deprecated Lemonade path.
+	c, err = Load(write(t, "[deciders]\nkev_url = \"\"\ndefault_route = \"local\"\n[routines.x]\nkind='script'\nschedule='daily'\n[routines.x.fetch]\nheaded='ask'\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Deciders.KevURL != "" || c.Deciders.DefaultRoute != "local" || c.Routines["x"].Fetch.Headed != "ask" {
+		t.Fatalf("overrides: %+v %+v", c.Deciders, c.Routines["x"].Fetch)
 	}
 }

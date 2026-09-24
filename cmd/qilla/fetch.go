@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/jalberto/qilla/internal/config"
 	"github.com/jalberto/qilla/internal/decide"
@@ -18,9 +20,15 @@ import (
 
 // errBlocked is the exit-3 outcome: every rung ended in something that is not
 // content. The message names the last kind so the caller can say which.
-type errBlocked struct{ kind string }
+type errBlocked struct {
+	kind       string
+	needsHuman bool
+}
 
 func (e errBlocked) Error() string {
+	if e.needsHuman {
+		return fmt.Sprintf("no content: needs you in the browser (last page was %s) — the headed window was not opened, see --json", e.kind)
+	}
 	return fmt.Sprintf("no content: last page was %s — every rung tried, see --json", e.kind)
 }
 
@@ -88,7 +96,7 @@ func cmdFetch(args []string) error {
 		}
 	}
 	if !res.OK() {
-		return errBlocked{kind: res.Kind}
+		return errBlocked{kind: res.Kind, needsHuman: res.NeedsHuman}
 	}
 	return nil
 }
@@ -146,7 +154,7 @@ func fetchLedgerForget(domain string) error {
 // missing config leaves the package defaults, and every decider call
 // (PageKind's fallback, the fetch-route choice) is traced.
 func fetchOptions(maxRung int) fetch.Options {
-	o := fetch.Options{MaxRung: maxRung, HisterURL: fetch.DefaultHisterURL, LadderURL: fetch.DefaultLadderURL}
+	o := fetch.Options{MaxRung: maxRung, HisterURL: fetch.DefaultHisterURL, LadderURL: fetch.DefaultLadderURL, Notify: remindBrowser}
 	cfg, err := config.Load(config.DefaultPath())
 	if err != nil {
 		o.Ask = traceAsk("")
@@ -155,6 +163,7 @@ func fetchOptions(maxRung int) fetch.Options {
 	o.Profile, o.Session, o.Class = cfg.Browser.Profile, cfg.Browser.Session, cfg.Browser.Class
 	o.HisterURL, o.LadderURL = cfg.Fetch.HisterURL, cfg.Fetch.LadderURL
 	o.Mirrors, o.Route = cfg.Fetch.MirrorTable(), cfg.Fetch.Route
+	o.Headed = cfg.Fetch.Headed
 	o.LedgerPath = fetch.LedgerFile(cfg.StateDir)
 	if u := cfg.KarakeepURL(); u != "" {
 		if b, err := readSecret("karakeep"); err == nil {
@@ -163,6 +172,22 @@ func fetchOptions(maxRung int) fetch.Options {
 	}
 	o.Ask = traceAsk(filepath.Join(cfg.StateDir, "deciders"))
 	return o
+}
+
+// remindBrowser is fetch's Notify: a reminder due now, through `qilla remind
+// add` (the same binary), so the 5-minute reminder timer delivers it.
+func remindBrowser(url, reason string) error {
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	text := fmt.Sprintf("Browser needs you: %s (%s)", url, reason)
+	at := time.Now().Format("2006-01-02 15:04")
+	out, err := exec.Command(self, "remind", "add", text, "--at", at).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("qilla remind add: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // traceAsk is PageKind's backend: decide.AskAndTrace with the [deciders]

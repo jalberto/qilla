@@ -2,6 +2,8 @@ package doctor
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -305,5 +307,46 @@ func TestRoutineCheckRow(t *testing.T) {
 		if c.Name == "routine brief" && strings.Contains(c.Info, "routine brief:") {
 			t.Fatalf("green routine must add no row: %+v", c)
 		}
+	}
+}
+
+func TestKevCheckWarnsWhenDown(t *testing.T) {
+	env, cfg := fakeEnv(t, map[string]bool{"claude": true, "git": true}, true)
+	cfg.Deciders.KevURL, cfg.Deciders.DefaultRoute = "http://127.0.0.1:8009/", "jev"
+	var probed string
+	env.KevModels = func(u string) error { probed = u; return errors.New("connection refused") }
+	c := find(Run(cfg, nil, env), "kev")
+	if c.OK || c.Hard || !strings.Contains(c.Info, "connection refused") {
+		t.Fatalf("kev check = %+v, want a soft warning", c)
+	}
+	if probed != "http://127.0.0.1:8009" {
+		t.Fatalf("probed %q", probed)
+	}
+	env.KevModels = func(string) error { return nil }
+	if c := find(Run(cfg, nil, env), "kev"); !c.OK {
+		t.Fatalf("kev up = %+v", c)
+	}
+	cfg.Deciders.KevURL = ""
+	if c := find(Run(cfg, nil, env), "kev"); c.Name == "kev" {
+		t.Fatalf("no kev_url must skip the check, got %+v", c)
+	}
+}
+
+func TestKevModelsProbe(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			w.WriteHeader(404)
+			return
+		}
+		w.Write([]byte(`{"data":[{"id":"kev-latest"}]}`))
+	}))
+	defer up.Close()
+	if err := kevModels(up.URL); err != nil {
+		t.Fatalf("up: %v", err)
+	}
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(503) }))
+	defer down.Close()
+	if err := kevModels(down.URL); err == nil {
+		t.Fatal("503 must be an error")
 	}
 }

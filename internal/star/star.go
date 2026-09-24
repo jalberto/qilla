@@ -143,6 +143,9 @@ type FetchEnv struct {
 	Mirrors              map[string]string
 	Route                string
 	LedgerPath           string
+	// Headed is the routine's [routines.<name>.fetch] headed; "" = never:
+	// a headless run never opens a browser window.
+	Headed string
 }
 
 // Run executes path and returns the gather result as plain Go values

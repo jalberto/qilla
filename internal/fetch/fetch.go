@@ -103,6 +103,9 @@ type Result struct {
 	Order []string `json:"order"`
 	Route string   `json:"route"`
 	Tried []Try    `json:"tried"`
+	// NeedsHuman: the headed rung was not opened because a Noul decision
+	// said a person has to log in / solve a captcha in the browser.
+	NeedsHuman bool `json:"needs_human,omitempty"`
 
 	Text string `json:"-"` // stdout, not part of the JSON shape
 }
@@ -151,6 +154,55 @@ type Options struct {
 	// PrepareDisplay exports the session's WAYLAND_DISPLAY/DISPLAY before the
 	// headed rung; nil = the real systemd lookup.
 	PrepareDisplay func() error
+	// Headed is [fetch] headed: "never" (the rung is always skipped),
+	// "ask" (default: one Noul decision first — a page that needs a human is
+	// not opened, it is reported) or "always" (open without asking).
+	Headed string
+	// Notify tells JA a page needs him in the browser; called at most once
+	// per Fetch. nil = no notification (NeedsHuman is still set).
+	Notify func(url, reason string) error
+	// ChallengePoll overrides the 3 s between challenge re-reads (tests).
+	ChallengePoll time.Duration
+}
+
+// Headed modes.
+const (
+	HeadedNever  = "never"
+	HeadedAsk    = "ask"
+	HeadedAlways = "always"
+)
+
+// HeadedQuestion is the Noul decision taken before a headed window opens.
+const HeadedQuestion = "Does reaching this page require a human to log in, solve a captcha or otherwise act in the browser?"
+
+// headedAskChars of the last rung's text go to the headed decision.
+const headedAskChars = 500
+
+// KindNeedsHuman is the `tried` kind of a headed rung that was not opened
+// because the page needs a person.
+const KindNeedsHuman = "needs-human"
+
+// climb is one Fetch call's state: the headed rung opens at most one window
+// per call, and the window it opened is closed when the call ends without
+// content.
+type climb struct {
+	headedOpened bool
+	notified     bool
+}
+
+func (o Options) headed() string {
+	switch o.Headed {
+	case HeadedNever, HeadedAlways:
+		return o.Headed
+	}
+	return HeadedAsk
+}
+
+func (o Options) challengePoll() time.Duration {
+	if o.ChallengePoll > 0 {
+		return o.ChallengePoll
+	}
+	return 3 * time.Second
 }
 
 func (o Options) session() string {
@@ -260,6 +312,14 @@ func Fetch(ctx context.Context, url string, o Options) (Result, error) {
 		max = len(res.Order)
 	}
 	tried := map[string]bool{}
+	st := &climb{}
+	defer func() {
+		// A window this call opened is closed unless it produced the page:
+		// a leftover daemon session is what re-opened Brave on a loop.
+		if st.headedOpened && !res.OK() {
+			_, _ = o.run()(context.WithoutCancel(ctx), 15*time.Second, "agent-browser", "--session", o.session(), "close")
+		}
+	}()
 	for pos := 1; pos <= max && pos <= len(res.Order); pos++ {
 		name := res.Order[pos-1]
 		if tried[name] {
@@ -281,7 +341,17 @@ func Fetch(ctx context.Context, url string, o Options) (Result, error) {
 			}
 		}
 		started := time.Now()
-		text, reread, note := rung(ctx, name, url, o)
+		if name == RungHeaded {
+			if skip, human := headedGate(ctx, url, &res, o, st); human != "" {
+				res.NeedsHuman = true
+				res.Tried = append(res.Tried, Try{Rung: name, Pos: pos, Kind: KindNeedsHuman, MS: ms(started), Note: human})
+				continue
+			} else if skip != "" {
+				res.Tried = append(res.Tried, Try{Rung: name, Pos: pos, Kind: "skipped", MS: ms(started), Note: skip})
+				continue
+			}
+		}
+		text, reread, note := rung(ctx, name, url, o, st)
 		if note != "" && text == "" {
 			res.Tried = append(res.Tried, Try{Rung: name, Pos: pos, Kind: "skipped", MS: ms(started), Note: note})
 			continue
@@ -333,7 +403,7 @@ func waitOutChallenge(ctx context.Context, reread func() (string, error), o Opti
 		select {
 		case <-ctx.Done():
 			return "", "", 0, "", false
-		case <-time.After(3 * time.Second):
+		case <-time.After(o.challengePoll()):
 		}
 		text, err := reread()
 		if err != nil {
@@ -349,7 +419,7 @@ func waitOutChallenge(ctx context.Context, reread func() (string, error), o Opti
 
 // rung runs one named rung. note != "" with empty text means the rung was
 // skipped (tool missing, or it failed); reread (may be nil) re-reads the page.
-func rung(ctx context.Context, name, url string, o Options) (text string, reread func() (string, error), note string) {
+func rung(ctx context.Context, name, url string, o Options, st *climb) (text string, reread func() (string, error), note string) {
 	switch name {
 	case RungHister:
 		return rungHister(ctx, url, o)
@@ -368,7 +438,7 @@ func rung(ctx context.Context, name, url string, o Options) (text string, reread
 	case RungKarakeepCrawl:
 		return rungKarakeepCrawl(ctx, url, o)
 	case RungHeadless, RungHeaded:
-		return rungBrowser(ctx, url, o, name == RungHeaded)
+		return rungBrowser(ctx, url, o, name == RungHeaded, st)
 	}
 	return "", nil, fmt.Sprintf("%s: no such rung", name)
 }
@@ -441,9 +511,12 @@ func rungObscura(ctx context.Context, url string, o Options) (string, func() (st
 }
 
 // rungBrowser: agent-browser on the qilla session/profile, headless or headed.
-func rungBrowser(ctx context.Context, url string, o Options, headed bool) (string, func() (string, error), string) {
+func rungBrowser(ctx context.Context, url string, o Options, headed bool, st *climb) (string, func() (string, error), string) {
 	if _, err := o.look()("agent-browser"); err != nil {
 		return "", nil, "agent-browser not on PATH"
+	}
+	if headed && st != nil && st.headedOpened {
+		return "", nil, "headed: a window was already opened in this fetch"
 	}
 	timeout := RungTimeout
 	base := []string{"--session", o.session()}
@@ -464,6 +537,9 @@ func rungBrowser(ctx context.Context, url string, o Options, headed bool) (strin
 			_ = err // no daemon to close is fine
 		}
 		base = append(base, "--headed", "--args", "--class="+o.class())
+		if st != nil {
+			st.headedOpened = true // counted before the call: a failed open may still leave a window
+		}
 	}
 	ab := func(extra ...string) (string, error) {
 		return o.run()(ctx, timeout, "agent-browser", append(append([]string{}, base...), extra...)...)
@@ -472,6 +548,13 @@ func rungBrowser(ctx context.Context, url string, o Options, headed bool) (strin
 		return "", nil, "agent-browser open: " + err.Error()
 	}
 	read := func() (string, error) { return ab("get", "text", "body") }
+	if headed {
+		// Re-reads talk to the session the open started and nothing else: no
+		// --headed/--profile/--args, so a re-read can never launch a window.
+		read = func() (string, error) {
+			return o.run()(ctx, timeout, "agent-browser", "--session", o.session(), "get", "text", "body")
+		}
+	}
 	out, err := read()
 	if err != nil {
 		return "", nil, "agent-browser get: " + err.Error()
@@ -534,4 +617,41 @@ func StripTags(html string) string {
 		lines = append(lines, strings.TrimSpace(strings.Join(strings.Fields(ln), " ")))
 	}
 	return strings.TrimSpace(wsRe.ReplaceAllString(strings.Join(lines, "\n"), "\n\n"))
+}
+
+// headedGate decides whether the headed rung may open a window. skip != ""
+// skips the rung (mode never); human != "" means a Noul decision said a person
+// has to act in the browser, so no window opens and JA is told once. Both
+// empty = open.
+func headedGate(ctx context.Context, url string, res *Result, o Options, st *climb) (skip, human string) {
+	switch o.headed() {
+	case HeadedNever:
+		return "headed: never (unattended run, [fetch] headed = \"never\")", ""
+	case HeadedAlways:
+		return "", ""
+	}
+	if o.Ask == nil {
+		return "", "" // no decider: unknown, open as before
+	}
+	last := res.Text
+	if r := []rune(last); len(r) > headedAskChars {
+		last = string(r[:headedAskChars])
+	}
+	ans, err := o.Ask(ctx, decide.AskRequest{
+		Kind:     "noul",
+		Question: HeadedQuestion,
+		Text:     url + "\n" + res.Kind + "\n" + last,
+		Caller:   "fetch-headed",
+		Public:   true,
+		Route:    "auto",
+	})
+	if err != nil || ans.Label != "yes" { // below the floor Ask already says unknown
+		return "", ""
+	}
+	reason := fmt.Sprintf("last page was %s; a human must act in the browser (conf %.2f)", res.Kind, ans.Conf)
+	if o.Notify != nil && !st.notified {
+		st.notified = true
+		_ = o.Notify(url, reason) // a failed notification never fails the fetch
+	}
+	return "", reason
 }

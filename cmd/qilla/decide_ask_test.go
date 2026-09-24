@@ -16,13 +16,14 @@ import (
 )
 
 // askEnv writes a minimal qilla.toml pointing [deciders] at a fake Lemonade
-// and returns the state dir the trace lands under.
+// (kev_url = "", the deprecated path) and returns the state dir the trace
+// lands under.
 func askEnv(t *testing.T, lemonadeURL string) string {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "qilla.toml")
 	body := "vault = \"" + dir + "\"\nstate_dir = \"" + dir + "\"\n" +
-		"[deciders]\nlemonade_url = \"" + lemonadeURL + "\"\nask_model = \"fake-decider\"\nconf_floor = 0.85\n"
+		"[deciders]\nkev_url = \"\"\nlemonade_url = \"" + lemonadeURL + "\"\nask_model = \"fake-decider\"\nconf_floor = 0.85\n"
 	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -168,5 +169,38 @@ func TestDecideAskUsageErrors(t *testing.T) {
 	}
 	if _, err := parseAskArgs([]string{"--noul", "--text", "x"}); err != nil {
 		t.Fatalf("a good call must parse: %v", err)
+	}
+}
+
+// With kev_url set, a plain (auto, non-public) ask goes to kev and the trace
+// names the endpoint.
+func TestDecideAskAutoGoesToKev(t *testing.T) {
+	kev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != decide.JevPath {
+			t.Errorf("path %s", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"model": "kev-1", "answers": map[string]any{"q": map[string]any{
+			"probabilities": map[string]any{"respond": 0.95, "archive": 0.05}, "confidence": 0.95}}})
+	}))
+	t.Cleanup(kev.Close)
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "qilla.toml")
+	body := "vault = \"" + dir + "\"\nstate_dir = \"" + dir + "\"\n[deciders]\nkev_url = \"" + kev.URL + "\"\n"
+	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("QILLA_CONFIG", cfg)
+	out, err := runAsk(t, "", "--choice", "respond,archive", "--text", "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res map[string]any
+	json.Unmarshal([]byte(out), &res)
+	if res["label"] != "respond" || res["route"] != "local" || res["model"] != "kev-1" {
+		t.Fatalf("got %v", res)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "deciders", decide.TraceFile))
+	if !strings.Contains(string(raw), `"endpoint":"kev"`) {
+		t.Fatalf("trace = %s", raw)
 	}
 }

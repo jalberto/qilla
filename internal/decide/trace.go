@@ -50,6 +50,10 @@ type TraceLine struct {
 	// Tokens are the remote route's billed input tokens; the local route
 	// bills none, so the field is left off its lines.
 	Tokens int `json:"tokens,omitempty"`
+	// Endpoint is the server that answered: jev | kev | lemonade.
+	Endpoint string `json:"endpoint,omitempty"`
+	// Fallback is the jev failure an auto-routed ask was retried on kev for.
+	Fallback string `json:"fallback,omitempty"`
 }
 
 // escapeLine is a trace line plus the truncated text, for ask-escapes.jsonl.
@@ -74,6 +78,8 @@ type TraceInput struct {
 	MS            int
 	Caller        string
 	Tokens        int
+	Endpoint      string
+	Fallback      string
 }
 
 // SHA1Hex is the hex sha1 of a string.
@@ -114,6 +120,8 @@ func TraceRecord(in TraceInput) TraceLine {
 		MS:            in.MS,
 		Caller:        in.Caller,
 		Tokens:        in.Tokens,
+		Endpoint:      in.Endpoint,
+		Fallback:      in.Fallback,
 	}
 }
 

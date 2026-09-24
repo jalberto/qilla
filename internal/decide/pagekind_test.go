@@ -143,3 +143,15 @@ func TestPageKindAskSeesTruncatedText(t *testing.T) {
 		t.Fatalf("prompt missing the question: %q", joined)
 	}
 }
+
+// A fetched page is public input: PageKind's ask goes auto (Jev, kev fallback).
+func TestPageKindAskIsPublicAuto(t *testing.T) {
+	var got AskRequest
+	PageKindWith(context.Background(), "short ambiguous page text that the rules do not settle at all, really", func(_ context.Context, req AskRequest) (AskResult, error) {
+		got = req
+		return AskResult{Label: Unknown}, nil
+	})
+	if !got.Public || got.Route != "auto" || got.Caller != "fetch" {
+		t.Fatalf("request = %+v", got)
+	}
+}

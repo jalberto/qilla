@@ -488,6 +488,7 @@ func (w *Worker) gatherStar(ctx context.Context, dir, name string, dry bool) (st
 			HisterURL: w.Cfg().Fetch.HisterURL, LadderURL: w.Cfg().Fetch.LadderURL,
 			Mirrors: w.Cfg().Fetch.MirrorTable(), Route: w.Cfg().Fetch.Route,
 			LedgerPath: fetch.LedgerFile(w.Cfg().StateDir),
+			Headed:     w.Cfg().Routines[name].Fetch.Headed, // "" = never
 		},
 	}
 	// [capabilities] from the bundle's routine.toml scopes the side effects
@@ -899,7 +900,7 @@ func (w *Worker) commitVault(ctx context.Context, routine string) (string, error
 // askConfigFor fills the star `ask()` builtin's backend wiring from
 // [deciders]. The jev key is a secret: it is read from the routine's mounted
 // secrets directory (the gather env, not the worker's own environment), only
-// when the remote route is asked for and enabled.
+// when the request resolves to the remote route; the optional kev_key likewise.
 func (w *Worker) askConfigFor(secretsDir string) func(*decide.AskRequest) {
 	return func(req *decide.AskRequest) {
 		req.URL = w.Cfg().Deciders.LemonadeURL
@@ -908,20 +909,30 @@ func (w *Worker) askConfigFor(secretsDir string) func(*decide.AskRequest) {
 		if req.Floor == 0 {
 			req.Floor = w.Cfg().Deciders.ConfFloor
 		}
+		req.DefaultRoute = w.Cfg().Deciders.DefaultRoute
+		req.KevURL = w.Cfg().Deciders.KevURL
+		req.KevModel = w.Cfg().Deciders.KevModel
+		req.KevKey = routineSecret(secretsDir, "kev_key") // optional bearer
 		req.JevEnabled = w.Cfg().Deciders.JevEnabled
 		req.JevURL = w.Cfg().Deciders.JevURL
 		req.JevModel = w.Cfg().Deciders.JevModel
 		req.JevDailyMax = w.Cfg().Deciders.JevDailyMax
-		if req.Route == "jev" && req.JevEnabled {
-			for _, d := range []string{secretsDir, os.Getenv("QILLA_SECRETS_DIR"), os.Getenv("CREDENTIALS_DIRECTORY")} {
-				if d == "" {
-					continue
-				}
-				if b, err := os.ReadFile(filepath.Join(d, "jev_key")); err == nil {
-					req.JevKey = strings.TrimSpace(string(b))
-					return
-				}
-			}
+		if req.ResolveRoute() == "jev" {
+			req.JevKey = routineSecret(secretsDir, "jev_key")
 		}
 	}
+}
+
+// routineSecret reads one secret from the routine's mounted secrets
+// directory, then the process's; "" when none has it.
+func routineSecret(secretsDir, name string) string {
+	for _, d := range []string{secretsDir, os.Getenv("QILLA_SECRETS_DIR"), os.Getenv("CREDENTIALS_DIRECTORY")} {
+		if d == "" {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(d, name)); err == nil {
+			return strings.TrimSpace(string(b))
+		}
+	}
+	return ""
 }
