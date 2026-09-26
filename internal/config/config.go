@@ -266,13 +266,14 @@ type Health struct {
 // The local route is kev (a System One server, `kev_url`/`kev_model`, optional
 // secret `kev_key`); `default_route` says where `auto` sends public input
 // (jev, the default, or local). `lemonade_url`/`ask_model` are deprecated: the
-// Lemonade decider model is retired and is only used when kev_url is "".
+// old decider-2b checkpoint they served is retired, and the Lemonade path is
+// only used when kev_url is "".
 type Deciders struct {
 	KevURL        string  `toml:"kev_url"`        // local System One server, default http://127.0.0.1:8009; "" = the deprecated Lemonade path
 	KevModel      string  `toml:"kev_model"`      // kev model alias (default kev-latest)
 	DefaultRoute  string  `toml:"default_route"`  // jev (default) | local: where `auto` sends public input
 	LemonadeURL   string  `toml:"lemonade_url"`   // deprecated: OpenAI-compatible base, default http://127.0.0.1:13305/api/v1
-	AskModel      string  `toml:"ask_model"`      // deprecated: decider checkpoint as Lemonade registers it
+	AskModel      string  `toml:"ask_model"`      // deprecated: decider checkpoint as Lemonade registers it; no default (decider-2b is retired) — set explicitly if you still run a Lemonade decider
 	ConfFloor     float64 `toml:"conf_floor"`     // below this the answer is unknown (default 0.85)
 	PolicyVersion string  `toml:"policy_version"` // tags every trace line (default ask-v1)
 	JevEnabled    bool    `toml:"jev_enabled"`    // the remote route, off by default
@@ -478,7 +479,8 @@ func (c *Config) applyDefaults() {
 	def(&c.Deciders.KevModel, decide.DefaultKevModel)
 	def(&c.Deciders.DefaultRoute, decide.DefaultRoute)
 	def(&c.Deciders.LemonadeURL, decide.DefaultLemonadeURL)
-	def(&c.Deciders.AskModel, decide.DefaultAskModel)
+	// AskModel has no default: the old decider-2b checkpoint is retired, so
+	// the deprecated Lemonade path only works when a config names one.
 	def(&c.Deciders.PolicyVersion, decide.DefaultPolicyVersion)
 	if c.Deciders.ConfFloor == 0 {
 		c.Deciders.ConfFloor = decide.DefaultFloor

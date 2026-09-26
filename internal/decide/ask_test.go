@@ -221,13 +221,13 @@ func TestAskServerDown(t *testing.T) {
 
 func TestAskHTTPErrorSurfaced(t *testing.T) {
 	srv := fake(t, func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "model not found: decider-2b", http.StatusNotFound)
+		http.Error(w, "model not found: no-such-model", http.StatusNotFound)
 	})
 	res := mustAsk(t, AskRequest{Kind: "noul", Text: "ok?", URL: srv.URL})
 	if res.Label != Unknown {
 		t.Fatalf("label = %q, want unknown", res.Label)
 	}
-	if !strings.HasPrefix(res.Error, "http 404: ") || !strings.Contains(res.Error, "decider-2b") {
+	if !strings.HasPrefix(res.Error, "http 404: ") || !strings.Contains(res.Error, "no-such-model") {
 		t.Fatalf("error = %q, want the 404 body", res.Error)
 	}
 }

@@ -113,7 +113,7 @@ max_mb = 5
 # kev_model = "kev-latest"              # kev model alias
 # default_route = "jev"                 # where `--route auto` sends --public input: jev (default, when jev_enabled) | local; non-public input always stays local
 # lemonade_url = "http://127.0.0.1:13305/api/v1"          # DEPRECATED (Lemonade decider retired): only used when kev_url = ""
-# ask_model = "decider-2b-GGUF-decider-2b-q8_0.gguf"      # DEPRECATED: the old Lemonade decider checkpoint
+# ask_model = ""                                          # DEPRECATED: no default (decider-2b is retired); set to a checkpoint your Lemonade still serves
 # conf_floor = 0.85                     # below this the answer is "unknown" — undecided, never a guess (Variables.md decider_conf_floor)
 # policy_version = "ask-v1"             # tags every line of <state_dir>/deciders/decisions.jsonl
 # jev_enabled = false                   # the remote route, off by default (Variables.md decider_jev_enabled)

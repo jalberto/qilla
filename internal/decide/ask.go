@@ -37,9 +37,6 @@ import (
 const (
 	// DefaultLemonadeURL is Lemonade's OpenAI-compatible base.
 	DefaultLemonadeURL = "http://127.0.0.1:13305/api/v1"
-	// DefaultAskModel is how Lemonade registers the decider checkpoint
-	// (`/api/v1/models`).
-	DefaultAskModel = "decider-2b-GGUF-decider-2b-q8_0.gguf"
 	// DefaultFloor mirrors Killa/Config/Variables.md `decider_conf_floor`.
 	DefaultFloor = 0.85
 	// DefaultPolicyVersion tags every trace line.
@@ -249,11 +246,12 @@ func (req AskRequest) floor() float64 {
 	return DefaultFloor
 }
 
+// model is the Lemonade decider checkpoint ([deciders] ask_model). There is
+// no default: the old decider-2b checkpoint is retired, so the deprecated
+// Lemonade path only works when a config explicitly names a checkpoint it
+// still has loaded.
 func (req AskRequest) model() string {
-	if req.Model != "" {
-		return req.Model
-	}
-	return DefaultAskModel
+	return req.Model
 }
 
 func (req AskRequest) baseURL() string {
