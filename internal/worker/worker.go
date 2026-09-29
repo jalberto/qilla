@@ -318,7 +318,11 @@ func (w *Worker) run(ctx context.Context, j *queue.Job, rec *Record) error {
 			w.Mem.Add(ctx, "shared", "heuristic", "denied-"+j.Routine, fmt.Sprintf("%s run hit the allowlist: %s", j.Routine, res.DeniedDetail(1)))
 		}
 	}
-	data.Result = jsonOrString(res.Result)
+	result, recovered := jsonOrStringRecovered(res.Result)
+	if recovered {
+		rec.Warnings = append(rec.Warnings, "result JSON recovered from prose")
+	}
+	data.Result = result
 	memProject := j.Routine
 	if j.Routine == "ask" {
 		memProject = r.Agent
@@ -600,6 +604,110 @@ func jsonOrString(s string) any {
 		}
 	}
 	return s
+}
+
+// jsonOrStringRecovered is jsonOrString plus a fallback for replies that wrap
+// the JSON result in prose (a closing remark, a trailing code fence, etc).
+// It tries, in order: the strict path above; the last fenced block (tagged
+// json or untagged) whose body parses as a JSON object/array; the last
+// balanced top-level {...} object anywhere in the text. The bool reports
+// whether recovery (as opposed to the strict path) was needed.
+func jsonOrStringRecovered(s string) (any, bool) {
+	if v := jsonOrString(s); !isUnparsedString(v, s) {
+		return v, false
+	}
+	if v, ok := recoverFencedJSON(s); ok {
+		return v, true
+	}
+	if v, ok := recoverBraceObject(s); ok {
+		return v, true
+	}
+	return s, false
+}
+
+func isUnparsedString(v any, s string) bool {
+	vs, ok := v.(string)
+	return ok && vs == s
+}
+
+// isJSONContainer reports whether v is a JSON object or array (never a
+// scalar), the only shapes jsonOrString* ever accepts.
+func isJSONContainer(v any) bool {
+	switch v.(type) {
+	case map[string]any, []any:
+		return true
+	default:
+		return false
+	}
+}
+
+// recoverFencedJSON scans s for markdown code fences and returns the body of
+// the LAST one (tagged json, or untagged) that parses as a JSON object or
+// array.
+func recoverFencedJSON(s string) (any, bool) {
+	type fence struct{ tag, body string }
+	var fences []fence
+	rest := s
+	for {
+		i := strings.Index(rest, "```")
+		if i < 0 {
+			break
+		}
+		rest = rest[i+3:]
+		j := strings.Index(rest, "```")
+		if j < 0 {
+			break
+		}
+		body := rest[:j]
+		rest = rest[j+3:]
+		tag := ""
+		if k := strings.IndexByte(body, '\n'); k >= 0 {
+			if t := strings.TrimSpace(body[:k]); !strings.ContainsAny(t, " \t`") {
+				tag = strings.ToLower(t)
+				body = body[k+1:]
+			}
+		}
+		fences = append(fences, fence{tag: tag, body: strings.TrimSpace(body)})
+	}
+	for i := len(fences) - 1; i >= 0; i-- {
+		f := fences[i]
+		if f.tag != "" && f.tag != "json" {
+			continue
+		}
+		if !strings.HasPrefix(f.body, "{") && !strings.HasPrefix(f.body, "[") {
+			continue
+		}
+		var v any
+		if json.Unmarshal([]byte(f.body), &v) == nil && isJSONContainer(v) {
+			return v, true
+		}
+	}
+	return nil, false
+}
+
+// recoverBraceObject returns the LAST top-level JSON object embedded in s.
+// Each '{' is tried as a start with a json.Decoder, which reads exactly one
+// value and stops, so quotes or braces in the surrounding prose can't throw
+// the scan off; a hit skips past its own end, so nested objects never count.
+func recoverBraceObject(s string) (any, bool) {
+	var last any
+	found := false
+	for i := 0; i < len(s); {
+		j := strings.IndexByte(s[i:], '{')
+		if j < 0 {
+			break
+		}
+		i += j
+		dec := json.NewDecoder(strings.NewReader(s[i:]))
+		var v any
+		if dec.Decode(&v) == nil && isJSONContainer(v) {
+			last, found = v, true
+			i += int(dec.InputOffset())
+			continue
+		}
+		i++
+	}
+	return last, found
 }
 
 // stripFence removes a markdown code fence (```, optionally with a language

@@ -326,6 +326,71 @@ func TestJSONOrString(t *testing.T) {
 	}
 }
 
+func TestJSONOrStringRecovered(t *testing.T) {
+	obj := map[string]any{"a": "b"}
+	braces := map[string]any{"a": "}{"}
+	cases := []struct {
+		name      string
+		in        string
+		want      any
+		recovered bool
+	}{
+		{"bare object", `{"a":"b"}`, obj, false},
+		{"whole fence", "```\n{\"a\":\"b\"}\n```", obj, false},
+		{
+			"prose then trailing json fence",
+			"Both files are written: the daily note (`status: partial`) and the `Today.md` widget. This is the final reply.\n\n```json\n{\"a\":\"b\"}\n```",
+			obj, true,
+		},
+		{
+			"two fences, last wins",
+			"```json\n{\"a\":\"nope\"}\n```\nActually:\n```json\n{\"a\":\"b\"}\n```",
+			obj, true,
+		},
+		{
+			"prose with a trailing bare object",
+			`Here is the result: {"a":"b"}`,
+			obj, true,
+		},
+		{
+			"odd quote in prose before the object",
+			`Marked "partial. {"a":"b"}`,
+			obj, true,
+		},
+		{
+			"nested object, outer one wins",
+			`Done: {"a":"b","n":{"x":1}}`,
+			map[string]any{"a": "b", "n": map[string]any{"x": float64(1)}}, true,
+		},
+		{
+			"braces inside JSON strings",
+			`Result: {"a":"}{"}`,
+			braces, true,
+		},
+		{
+			"invalid json everywhere",
+			"prose with {broken} and ```json\n{nope}\n``` too",
+			"prose with {broken} and ```json\n{nope}\n``` too", false,
+		},
+		{
+			"scalar-only fence",
+			"The answer is\n```json\n42\n```",
+			"The answer is\n```json\n42\n```", false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, recovered := jsonOrStringRecovered(c.in)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("jsonOrStringRecovered(%q) = %#v, want %#v", c.in, got, c.want)
+			}
+			if recovered != c.recovered {
+				t.Fatalf("jsonOrStringRecovered(%q) recovered=%v, want %v", c.in, recovered, c.recovered)
+			}
+		})
+	}
+}
+
 // [routines.<name>.settings] reaches gather.sh as $QILLA_SETTINGS (JSON) and
 // the template as data.settings; with no settings the variable is absent.
 func TestGatherSeesSettingsEnv(t *testing.T) {
