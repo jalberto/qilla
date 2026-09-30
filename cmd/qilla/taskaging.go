@@ -74,6 +74,37 @@ func cmdTaskSummary(args []string) error {
 	return nil
 }
 
+// cmdTaskSweep: qilla task sweep [--dry-run] — move done items out of the
+// todo file into its Archive/ sibling.
+func cmdTaskSweep(args []string) error {
+	fs := flag.NewFlagSet("task sweep", flag.ContinueOnError)
+	dryRun := fs.Bool("dry-run", false, "print what would move without writing")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := config.Load(config.DefaultPath())
+	if err != nil {
+		return err
+	}
+	n, archiveRel, moved, err := tasks.Sweep(cfg.Vault, todoPath(cfg), taskNow(cfg), *dryRun)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		fmt.Println("nothing to sweep")
+		return nil
+	}
+	if *dryRun {
+		for _, line := range moved {
+			fmt.Println(line)
+		}
+		fmt.Printf("would sweep %d done item(s) → %s\n", n, archiveRel)
+		return nil
+	}
+	fmt.Printf("swept %d done item(s) → %s\n", n, archiveRel)
+	return nil
+}
+
 // todoPath is the vault-relative todo file: the top-level `todo` key, which
 // the reminders side owns, with the charter's own default as the floor.
 func todoPath(cfg *config.Config) string {

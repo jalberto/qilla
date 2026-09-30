@@ -20,6 +20,7 @@ const taskUsage = `usage: qilla task <command>
   open             every id-bearing task still open, deduped by id
   aging [--brief]  age open dated tasks ("- [ ] YYYY-MM-DD · …") and flag the stale ones
   summary          rewrite the todo file's "> [!summary]" callout from ground truth
+  sweep [--dry-run] move done items out of the todo file into its Archive/ sibling
   send --to <host> [--routine <name>] "<text>"  append a handoff task for <host>
   inbox [--host <h>]                            open handoff tasks addressed to this host, as JSON
   done --host <h> --line <n> [--result "<r>"]   flip that handoff line to done (host/line form)
@@ -100,6 +101,8 @@ func cmdTask(args []string) error {
 		return cmdTaskAging(args[1:])
 	case "summary":
 		return cmdTaskSummary(args[1:])
+	case "sweep":
+		return cmdTaskSweep(args[1:])
 	default:
 		fmt.Fprintln(os.Stderr, taskUsage)
 		return fmt.Errorf("unknown task command %q", args[0])
