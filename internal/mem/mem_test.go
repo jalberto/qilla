@@ -159,11 +159,12 @@ func TestInjectCap(t *testing.T) {
 // ---- Engram backend against a fake server ----
 
 type fakeEngram struct {
-	mu     sync.Mutex
-	obs    map[int]map[string]any
-	next   int
-	sess   map[string]bool
-	judged []string
+	mu      sync.Mutex
+	obs     map[int]map[string]any
+	next    int
+	sess    map[string]bool
+	judged  []string
+	deleted []string
 }
 
 func newFake() *fakeEngram {
@@ -268,9 +269,24 @@ func (f *fakeEngram) handler() http.Handler {
 	})
 	mux.HandleFunc("DELETE /observations/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, _ := strconv.Atoi(r.PathValue("id"))
+		p := r.URL.Query().Get("expected_project")
+		if p == "" {
+			http.Error(w, `{"error":"expected_project is required"}`, 400)
+			return
+		}
 		f.mu.Lock()
+		defer f.mu.Unlock()
+		o, ok := f.obs[id]
+		if !ok {
+			http.Error(w, "nope", 404)
+			return
+		}
+		if o["project"] != p {
+			http.Error(w, `{"error":"project mismatch"}`, 409)
+			return
+		}
 		delete(f.obs, id)
-		f.mu.Unlock()
+		f.deleted = append(f.deleted, p)
 		w.Write([]byte(`{}`))
 	})
 	mux.HandleFunc("GET /conflicts", func(w http.ResponseWriter, r *http.Request) {
@@ -332,6 +348,12 @@ func TestEngramBackend(t *testing.T) {
 	if _, err := b.Get(ctx, e1.ID); err == nil {
 		t.Fatal("deleted")
 	}
+	if len(f.deleted) != 1 || f.deleted[0] != "brief" {
+		t.Fatalf("delete must send expected_project from the observation it fetched: %+v", f.deleted)
+	}
+	if err := b.Delete(ctx, "999999"); err != nil {
+		t.Fatalf("deleting an already-gone id must be a no-op, not an error: %v", err)
+	}
 	// store on top of engram: meta works the same
 	q := db(t)
 	s, _ := New(b, q.DB(), Options{MaxChars: 500, SaidTTLDays: 90, ExpireUnusedDays: 90})
@@ -341,6 +363,15 @@ func TestEngramBackend(t *testing.T) {
 	es, _ = s.Search(ctx, "brief", "", "value", 5)
 	if len(es) != 1 || es[0].NumN != 2 || es[0].NumMean != 4 {
 		t.Fatalf("meta over engram: %+v", es)
+	}
+	if err := s.Forget(ctx, es[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Get(ctx, es[0].ID); err == nil {
+		t.Fatal("forgotten")
+	}
+	if last := f.deleted[len(f.deleted)-1]; last != "brief" {
+		t.Fatalf("Forget must carry expected_project through to Engram: %+v", f.deleted)
 	}
 }
 

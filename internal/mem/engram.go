@@ -189,8 +189,21 @@ func (e *Engram) Get(ctx context.Context, id string) (Entry, error) {
 	return o.entry(), nil
 }
 
+// Delete removes an observation. Engram 3.0 requires the owning project on
+// the DELETE (expected_project, 400 if missing, 409 on mismatch) so we GET
+// it first; 2.2.1 ignores the extra query param. A 404 on the GET means the
+// observation is already gone, which Purge relies on to clear its own
+// mem_meta row instead of wedging on every run.
 func (e *Engram) Delete(ctx context.Context, id string) error {
-	return e.do(ctx, "DELETE", "/observations/"+id, nil, nil)
+	o, err := e.Get(ctx, id)
+	if err != nil {
+		if notFound(err) {
+			return nil
+		}
+		return err
+	}
+	q := url.Values{"expected_project": {o.Project}}
+	return e.do(ctx, "DELETE", "/observations/"+id+"?"+q.Encode(), nil, nil)
 }
 
 func (e *Engram) Recent(ctx context.Context, project string, n int) ([]Entry, error) {
@@ -290,4 +303,10 @@ func firstLine(s string) string {
 // that has no observations yet.
 func unknownProject(err error) bool {
 	return err != nil && (strings.Contains(err.Error(), "unknown_project") || strings.Contains(err.Error(), "not found"))
+}
+
+// notFound matches do()'s "<method> <path>: <code> <body>" error shape for a
+// plain 404 (e.g. GET /observations/{id} for a missing id), regardless of body.
+func notFound(err error) bool {
+	return err != nil && strings.Contains(err.Error(), ": 404 ")
 }
