@@ -285,7 +285,7 @@ func cmdAsk(args []string) error {
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
 
 var shortcuts = map[string]string{
-	"fable": "claude-fable-5-1", "opus": "claude-opus-5", "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5-20251001",
+	"fable": "fable", "opus": "opus", "sonnet": "sonnet", "haiku": "haiku",
 }
 
 // looksLikeAgent: a single lowercase token with no spaces is an agent name; anything else is the opening line.

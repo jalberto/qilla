@@ -26,7 +26,7 @@ password_hash = ""                      # set with `qilla passwd`; empty = loopb
 idle_exit = "10m"                       # serve exits when queue empty for this long
 
 [chat]                                  # qilla chat (interactive) defaults — routines use tiers, this is you talking
-model = "claude-fable-5-1"              # degrades with weekly usage via [models].ladder
+model = "fable"              # degrades with weekly usage via [models].ladder
 effort = "low"
 rc = true                               # Remote Control on: reach the session from the phone
 statusline = ""                         # empty = qilla's own bar (model · ⚡weekly · ◔context · 🚨services · 🔔reminders · ❓questions · 📋jots); set a command of your own and qilla wraps it with its badge instead
@@ -41,13 +41,13 @@ evening = "Evening wrap-up: what happened today, what is pending, 5 lines."
 resume = "Catch up: anything new since we last talked, then wait for me."
 
 [models]                                # tiers: routines and agents name a job, not a model
-classify = "claude-haiku-4-5-20251001"  # bucket/tag/dedupe
-extract = "claude-haiku-4-5-20251001"   # pull fields out of text
-research = "claude-sonnet-5"            # read the web, return findings
-synthesis = "claude-sonnet-5"           # weigh findings, write the verdict
-judgment = "claude-sonnet-5"            # the chief's decisions (raise per routine when it earns it)
-coding = "claude-opus-5"                # writing or changing code; `qilla chat --dir <repo>` picks this tier by itself
-ladder = ["claude-fable-5-1", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"]
+classify = "haiku"  # bucket/tag/dedupe
+extract = "haiku"   # pull fields out of text
+research = "sonnet"            # read the web, return findings
+synthesis = "sonnet"           # weigh findings, write the verdict
+judgment = "sonnet"            # the chief's decisions (raise per routine when it earns it)
+coding = "opus"                # writing or changing code; `qilla chat --dir <repo>` picks this tier by itself
+ladder = ["fable", "opus", "sonnet", "haiku"]
 degrade_at = 80                         # seven-day subscription usage % → every tier one step down the ladder
 [models.effort]                         # effort per tier (low | medium | high); unset tiers leave it to Claude Code
 coding = "medium"
@@ -135,7 +135,7 @@ conflict_auto_days = 7
 consolidate_dry_run_weeks = 3
 
 [agents.chief]                          # the resumed session you talk to
-model = "claude-sonnet-5"
+model = "sonnet"
 budget = { warn = 2.00, block = 3.00 }
 allowed_tools = ["Read", "Edit", "Write", "Glob", "Grep", "Bash(qmd:*)", "Bash(git:*)", "Bash(qilla catchup:*)", "Bash(qilla note:*)", "Bash(qilla log:*)", "Bash(qilla config get:*)", "Bash(qilla config keys)", "WebSearch", "WebFetch"]
 scope = ["persona", "rules", "journal:2d", "recall:8", "memory:6"]

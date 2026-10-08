@@ -17,7 +17,7 @@ type Tiers struct {
 	Research   string            `toml:"research"`
 	Synthesis  string            `toml:"synthesis"`
 	Judgment   string            `toml:"judgment"`
-	Coding     string            `toml:"coding"`      // writing/changing code: Opus unless told otherwise
+	Coding     string            `toml:"coding"`      // writing/changing code
 	Effort     map[string]string `toml:"effort"`      // per-tier effort (low|medium|high); unset = Claude Code's default
 	Ladder     []string          `toml:"ladder"`      // most → least capable; degradation steps down
 	DegradeAt  int               `toml:"degrade_at"`  // seven-day utilization % that triggers one step down
@@ -31,20 +31,20 @@ func (t *Tiers) Defaults() {
 			*p = v
 		}
 	}
-	def(&t.Classify, "claude-haiku-4-5-20251001")
-	def(&t.Extract, "claude-haiku-4-5-20251001")
-	def(&t.Research, "claude-sonnet-5")
-	def(&t.Synthesis, "claude-sonnet-5")
-	def(&t.Judgment, "claude-sonnet-5")
-	def(&t.Coding, "claude-opus-5")
+	def(&t.Classify, "haiku")
+	def(&t.Extract, "haiku")
+	def(&t.Research, "sonnet")
+	def(&t.Synthesis, "opus")
+	def(&t.Judgment, "sonnet")
+	def(&t.Coding, "sonnet")
 	if t.Effort == nil {
 		t.Effort = map[string]string{}
 	}
 	if t.Effort["coding"] == "" {
-		t.Effort["coding"] = "medium" // coding runs on Opus at medium effort unless set explicitly
+		t.Effort["coding"] = "medium" // coding runs at medium effort unless set explicitly
 	}
 	if len(t.Ladder) == 0 {
-		t.Ladder = []string{"claude-fable-5-1", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"}
+		t.Ladder = []string{"fable", "opus", "sonnet", "haiku"}
 	}
 	if t.DegradeAt == 0 {
 		t.DegradeAt = 80

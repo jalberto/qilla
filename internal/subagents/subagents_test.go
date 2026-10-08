@@ -29,8 +29,8 @@ func TestBuiltinsAndUserOverride(t *testing.T) {
 	if defs["cook"].Model != tiers.Research || defs["cook"].Prompt != "You cook." {
 		t.Fatalf("user agent with tier: %+v", defs["cook"])
 	}
-	// coder: the coding tier (Opus by default), can edit and run the gate, never commits
-	if c := defs["coder"]; c.Model != tiers.Coding || c.Model != "claude-opus-5" || len(c.Tools) < 5 {
+	// coder: the coding tier, can edit and run the gate, never commits
+	if c := defs["coder"]; c.Model != tiers.Coding || c.Model != "sonnet" || len(c.Tools) < 5 {
 		t.Fatalf("builtin coder: %+v", c)
 	}
 	var back map[string]Def

@@ -111,7 +111,7 @@ type Sandbox struct {
 
 // Chat is the interactive launcher's defaults (qilla chat).
 type Chat struct {
-	Model      string   `toml:"model"`       // default claude-fable-5-1; degrades with usage via [models].ladder
+	Model      string   `toml:"model"`       // default opus; degrades with usage via [models].ladder
 	Effort     string   `toml:"effort"`      // low | medium | high
 	RC         *bool    `toml:"rc"`          // Remote Control on by default
 	StatusLine string   `toml:"statusline"`  // the user's own status line command qilla wraps with its badge (default: `statusline` on PATH)
@@ -522,7 +522,7 @@ func (c *Config) applyDefaults() {
 		n := 70
 		c.Chat.AutocompactPct = &n
 	}
-	def(&c.Chat.Model, "claude-fable-5-1")
+	def(&c.Chat.Model, "opus")
 	def(&c.Chat.Effort, "low")
 	c.Chat.StatusLine = Expand(c.Chat.StatusLine)
 	c.Chat.Settings = Expand(c.Chat.Settings)
