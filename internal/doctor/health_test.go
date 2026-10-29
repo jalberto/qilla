@@ -2,6 +2,8 @@ package doctor
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -24,23 +26,25 @@ func TestParseFreshRule(t *testing.T) {
 	for _, tc := range []struct {
 		entry           string
 		label, path, by string
-		remote          string
+		remote, metric  string
 		max             time.Duration
 	}{
 		{entry: "Desk/Briefings/Today.md=daily@09:30", label: "Desk/Briefings/Today.md", path: "Desk/Briefings/Today.md", by: "09:30"},
 		{entry: "git@nas=7d", label: "git@nas", remote: "nas", max: 7 * 24 * time.Hour},
 		{entry: "Desk/Todo.md=6h", label: "Desk/Todo.md", path: "Desk/Todo.md", max: 6 * time.Hour},
+		{entry: "vm@zbook.fr.seq=10m", label: "vm@zbook.fr.seq", metric: "zbook.fr.seq", max: 10 * time.Minute},
+		{entry: "Desk/Todo.md=30m", label: "Desk/Todo.md", path: "Desk/Todo.md", max: 30 * time.Minute},
 		{entry: "Desk/Todo.md=2d", label: "Desk/Todo.md", path: "Desk/Todo.md", max: 48 * time.Hour},
 	} {
 		r, err := parseFreshRule(tc.entry)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.entry, err)
 		}
-		if r.Label != tc.label || r.Path != tc.path || r.By != tc.by || r.Remote != tc.remote || r.Max != tc.max {
+		if r.Label != tc.label || r.Path != tc.path || r.By != tc.by || r.Remote != tc.remote || r.Metric != tc.metric || r.Max != tc.max {
 			t.Errorf("%s: %+v", tc.entry, r)
 		}
 	}
-	for _, bad := range []string{"nospec", "p=", "=7d", "p=daily@25:99", "p=7x", "p=0d", "git@=7d"} {
+	for _, bad := range []string{"nospec", "p=", "=7d", "p=daily@25:99", "p=7x", "p=0d", "git@=7d", "vm@=10m", "vm@x=", "vm@x=10s", "vm@x=0m", "vm@x=daily@09:30"} {
 		if _, err := parseFreshRule(bad); err == nil {
 			t.Errorf("%q must not parse", bad)
 		}
@@ -220,5 +224,80 @@ func TestHealthRowsAreOptional(t *testing.T) {
 		if strings.HasPrefix(c.Name, "unit ") || strings.HasPrefix(c.Name, "fresh ") || c.Name == "jobs" {
 			t.Fatalf("unexpected health row: %+v", c)
 		}
+	}
+}
+
+func TestFreshnessVM(t *testing.T) {
+	now := at("2026-10-29 14:00")
+	var query string
+	reply := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.Query().Get("query")
+		w.Write([]byte(reply))
+	}))
+	defer srv.Close()
+	env, cfg := healthEnv(t, now)
+	env.VMLast = vmLastSample
+	cfg.Health.VictoriaMetrics = srv.URL
+	cfg.Health.Freshness = []string{"vm@zbook.fr.seq=10m"}
+	sample := func(ago time.Duration) string {
+		return `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1,"` +
+			strconv.FormatInt(now.Add(-ago).Unix(), 10) + `"]}]}}`
+	}
+	row := func() Check { return find(Health(cfg, env), "fresh vm@zbook.fr.seq") }
+
+	reply = sample(2 * time.Second)
+	if c := row(); !c.OK || !strings.Contains(c.Info, "last sample 2s ago") {
+		t.Errorf("fresh: %+v", c)
+	}
+	if !strings.Contains(query, `{__name__="zbook.fr.seq"}`) || !strings.Contains(query, "tlast_over_time") {
+		t.Errorf("query %q", query)
+	}
+	reply = sample(25 * time.Minute)
+	if c := row(); c.OK || !strings.Contains(c.Info, "last sample 25m0s ago (max 10m)") {
+		t.Errorf("stale: %+v", c)
+	}
+	reply = `{"status":"success","data":{"resultType":"vector","result":[]}}`
+	if c := row(); c.OK || !strings.Contains(c.Info, "no sample in the last") {
+		t.Errorf("empty: %+v", c)
+	}
+	reply = "not json"
+	if c := row(); c.OK || !strings.Contains(c.Info, "vm unreachable") {
+		t.Errorf("garbage: %+v", c)
+	}
+	srv.Close()
+	if c := row(); c.OK || !strings.Contains(c.Info, "vm unreachable") {
+		t.Errorf("unreachable: %+v", c)
+	}
+
+	// boot grace: a machine up for less than the rule's age is skipped, even with a dead VM
+	env.Uptime = func() (time.Duration, error) { return 3 * time.Minute, nil }
+	if c := row(); !c.OK || !strings.Contains(c.Info, "booted") {
+		t.Errorf("boot grace: %+v", c)
+	}
+	env.Uptime = func() (time.Duration, error) { return time.Hour, nil }
+	if c := row(); c.OK {
+		t.Errorf("past grace the dead VM counts: %+v", c)
+	}
+}
+
+func TestFreshnessVMUnconfigured(t *testing.T) {
+	env, cfg := healthEnv(t, at("2026-10-29 14:00"))
+	env.VMLast = func(string, string, time.Duration) (time.Time, bool, error) {
+		t.Fatal("must not query without a base URL")
+		return time.Time{}, false, nil
+	}
+	cfg.Health.Freshness = []string{"vm@a=10m", "vm@b=10m"}
+	n := 0
+	for _, c := range Health(cfg, env) {
+		if strings.HasPrefix(c.Name, "fresh vm") {
+			n++
+			if c.OK || !strings.Contains(c.Info, "victoriametrics is not set") {
+				t.Errorf("%+v", c)
+			}
+		}
+	}
+	if n != 1 {
+		t.Errorf("want one config problem, got %d", n)
 	}
 }

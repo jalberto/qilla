@@ -42,19 +42,21 @@ type Env struct {
 	Stat          func(string) (os.FileInfo, error)
 	Run           func(name string, args ...string) (string, error) // stdout, err
 	UnitActive    func(unit string) bool
-	Validate      func(tmplPath string) error                // knap validate; nil = skip
-	ListTimers    func() ([]Timer, error)                    // systemctl --user list-timers; nil = skip
-	EngramHealth  func(url string) error                     // probe the memory sidecar; nil = skip
-	KevModels     func(url string) error                     // GET <kev_url>/v1/models; nil = skip
-	SecurityScore func(unit string) (float64, error)         // systemd-analyze security; nil = skip
-	Calendar      func(spec string) error                    // systemd-analyze calendar; nil = skip
-	MiseMissing   func(configDir string) ([]string, error)   // tools in <configDir>/mise.toml not installed; nil = skip
-	MiseWarnings  func() (int, string, error)                // `mise doctor`: warning count + the first one; nil = skip
-	UnitState     func(unit string) string                   // watched unit: active | inactive | failed | not-found; nil = skip the watch
-	Restart       func(unit string) error                    // systemctl --user restart, for `qilla doctor fix`; nil = skip
-	Sleep         func(time.Duration)                        // settle time between restart and re-check; nil = do not wait
-	Jobs          func(*config.Config) ([]JobProblem, error) // failed/parked queue jobs; nil = skip
-	Now           func() time.Time                           // fixed clock in tests; nil = time.Now
+	Validate      func(tmplPath string) error                                              // knap validate; nil = skip
+	ListTimers    func() ([]Timer, error)                                                  // systemctl --user list-timers; nil = skip
+	EngramHealth  func(url string) error                                                   // probe the memory sidecar; nil = skip
+	KevModels     func(url string) error                                                   // GET <kev_url>/v1/models; nil = skip
+	SecurityScore func(unit string) (float64, error)                                       // systemd-analyze security; nil = skip
+	Calendar      func(spec string) error                                                  // systemd-analyze calendar; nil = skip
+	MiseMissing   func(configDir string) ([]string, error)                                 // tools in <configDir>/mise.toml not installed; nil = skip
+	MiseWarnings  func() (int, string, error)                                              // `mise doctor`: warning count + the first one; nil = skip
+	UnitState     func(unit string) string                                                 // watched unit: active | inactive | failed | not-found; nil = skip the watch
+	Restart       func(unit string) error                                                  // systemctl --user restart, for `qilla doctor fix`; nil = skip
+	Sleep         func(time.Duration)                                                      // settle time between restart and re-check; nil = do not wait
+	Jobs          func(*config.Config) ([]JobProblem, error)                               // failed/parked queue jobs; nil = skip
+	VMLast        func(base, metric string, window time.Duration) (time.Time, bool, error) // newest VictoriaMetrics sample; nil = vm@ rules not probed
+	Uptime        func() (time.Duration, error)                                            // system uptime; nil = no boot grace
+	Now           func() time.Time                                                         // fixed clock in tests; nil = time.Now
 	// RoutineCheck evaluates a routine bundle's routine.toml requirements;
 	// nil = skip (and legacy bundles without a manifest return no results).
 	RoutineCheck func(name string) ([]manifest.Result, error)
@@ -107,6 +109,8 @@ func Default(configPath string) Env {
 		},
 		KevModels: kevModels,
 		UnitState: unitState,
+		VMLast:    vmLastSample,
+		Uptime:    procUptime,
 		Restart: func(unit string) error {
 			return exec.Command("systemctl", "--user", "restart", unit).Run()
 		},

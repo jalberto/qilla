@@ -247,10 +247,14 @@ const DefaultLearnEvery = 15
 
 // Health is the stack watch: systemd user units that must not be failed and
 // artifacts that must stay fresh (each entry "<vault-relative path>=<spec>",
-// spec: daily@HH:MM | Nh | Nd, or "git@<remote>=Nd" for unpushed commits).
+// spec: daily@HH:MM | Nm | Nh | Nd, "git@<remote>=Nd" for unpushed commits,
+// or "vm@<metric>=Nm" for a VictoriaMetrics series whose newest sample must
+// be younger than that).
 type Health struct {
 	WatchedServices []string `toml:"watched_services"`
 	Freshness       []string `toml:"freshness"`
+	// VictoriaMetrics is the base URL the vm@ freshness rules query.
+	VictoriaMetrics string `toml:"victoriametrics"`
 }
 
 // Deciders is the local decision layer: the trained TF-IDF arms and
